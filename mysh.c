@@ -95,7 +95,6 @@ int main(int argc, char* argv[]) {
                     lineLength = i - lineStart + 1;
                     memcpy(lineBuffer, buffer + lineStart, bytes);
                     lineBuffer[lineLength] = '\0';
-                    write(1, lineBuffer, lineLength);
                     // Do something with lineBuffer here
                     // Exit command for testing
                     if(strcmp(lineBuffer, "exit\n") == 0) {
