@@ -133,6 +133,9 @@ char** tokenize(char* input, int* numTokens){
                 //Avoid redundant terminator character or new line character
                 i--;
             }
+            if(i <= j) {
+                break;
+            }
             if (num_tokens == max_tokens-1){
                 //More than "max_tokens" tokens in input, allow for more 
                 max_tokens *= 2;
@@ -167,6 +170,10 @@ void interpreter(char** tokens, int numTokens) {
     }
     if(strcmp(tokens[0],"search") == 0 && numTokens == 2) {
         searchFile(tokens[1]);
+    }
+    // Free the tokenized line
+    for(int i = 0; i < numTokens; i++) {
+        free(tokens[i]);
     }
     free(tokens);
 }
