@@ -96,7 +96,7 @@ void pwd() {
     free(buffer);
 }
 
-char** tokenize(char* input){
+char** tokenize(char* input, int* numTokens){
     size_t max_tokens = 8;
     char** token_arr = malloc(sizeof(char*) * max_tokens);
     int num_tokens = 0;
@@ -109,7 +109,7 @@ char** tokenize(char* input){
             //Count token length
             int prevIsntWhitespace = 1;
             int j = i;
-            while (input[i] != ' ' && input[i] != '\0'){
+            while (input[i] != ' ' && input[i] != '\0' && input[i] != '\n'){
                 if (input[i] == '<' || input[i] == '>' || input[i] == '|'){
                     prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == '>' || input[i-1] == '|'));
                     if (num_tokens == max_tokens-1-prevIsntWhitespace){
@@ -129,8 +129,8 @@ char** tokenize(char* input){
                 i+=2;
                 continue;
             }
-            if (input[i] == '\0'){
-                //Avoid redundant terminator character
+            if (input[i] == '\0' || input[i] == '\n'){
+                //Avoid redundant terminator character or new line character
                 i--;
             }
             if (num_tokens == max_tokens-1){
@@ -142,8 +142,8 @@ char** tokenize(char* input){
             token_arr[num_tokens] = malloc(sizeof(char) * (i - j + 1));
             //Copy the characters
             memcpy(token_arr[num_tokens], &(input[j]), i - j + 1);
-            //Add terminator character
-            token_arr[num_tokens][i - j + 1] = '\0';
+            //Add terminator character -> if line ends with a \n, then replace it with the null terminator
+            token_arr[num_tokens][i - j + 1] = '\0'; 
             num_tokens++;
         }
         else{
@@ -154,7 +154,21 @@ char** tokenize(char* input){
             }
         }
     }
+    *numTokens = num_tokens;
     return token_arr;
+}
+
+void interpreter(char** tokens, int numTokens) {
+    if(strcmp(tokens[0],"cd") == 0 && numTokens == 2) {
+        cd(tokens[1]);
+    }
+    if(strcmp(tokens[0],"pwd") == 0 && numTokens == 1) {
+        pwd();
+    }
+    if(strcmp(tokens[0],"search") == 0 && numTokens == 2) {
+        searchFile(tokens[1]);
+    }
+    free(tokens);
 }
 
 int main(int argc, char* argv[]) {
@@ -172,18 +186,17 @@ int main(int argc, char* argv[]) {
         while((bytes = read(file, buffer, BUF_SIZE)) > 0) {
             memcpy(lineBuffer, buffer, bytes);
             lineBuffer[bytes] = '\0';
-            // Do something with lineBuffer here
-
-            // Exit command for testing
+            // Exit Condition
             if(strcmp(lineBuffer, "exit\n") == 0) {
                 close(file);
                 free(buffer);
                 free(lineBuffer);
-                return EXIT_SUCCESS;
+                return 0;
             }
-            else if(strcmp(lineBuffer, "pwd\n") == 0) {
-                pwd();
-            }
+            // Interpret Line
+            int numTokens;
+            char** tokens = tokenize(lineBuffer, &numTokens);
+            interpreter(tokens, numTokens);
             write(1, "mysh> ", 7);
         }
     }
@@ -198,17 +211,18 @@ int main(int argc, char* argv[]) {
                     lineLength = i - lineStart + 1;
                     memcpy(lineBuffer, buffer + lineStart, bytes);
                     lineBuffer[lineLength] = '\0';
-                    // Do something with lineBuffer here
-                    // Exit command for testing
+                    // Exit condition
                     if(strcmp(lineBuffer, "exit\n") == 0) {
                         close(file);
                         free(buffer);
                         free(lineBuffer);
-                        return EXIT_SUCCESS;
+                        return 0;
                     }
-                    else if(strcmp(lineBuffer, "pwd\n") == 0) {
-                        searchFile("dog");
-                    }
+                    // Do something with lineBuffer here
+                    int numTokens;
+                    char** tokens = tokenize(lineBuffer, &numTokens);
+                    interpreter(tokens, numTokens);
+                    // Set the starting position of the next line in the buffer
                     lineStart = i+1;
                 }
             }
