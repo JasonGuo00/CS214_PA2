@@ -64,21 +64,29 @@ char** tokenize(char* input){
             //No whitespace detected here: start scanning this token
             scanningWhitespace = 0;
             //Count token length
+            int prevIsntWhitespace = 0;
             int j = i;
-            while (input[i] != ' '){
+            while (input[i] != ' ' && input[i] != "\0"){
                 if (input[i] == '<' || input[i] == ">" || input[i] == "|"){
-                    if (num_tokens == max_tokens-1){
+                    if (num_tokens == max_tokens-2){
                         //More than "max_tokens" tokens in input, allow for more 
                         max_tokens *= 2;
                         token_arr = realloc(token_arr, max_tokens);
                     }
-                    token_arr[num_tokens] = malloc(1);
-                    memcpy(token_arr[num_tokens], &(input[i]), 1);
-                    num_tokens++;
+                    int prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == ">" || input[i-1] == "|"));
+                    token_arr[num_tokens+prevIsntWhitespace] = malloc(2);
+                    memcpy(token_arr[num_tokens+1], &(input[i]), 1);
+                    token_arr[num_tokens+prevIsntWhitespace][2] = '\0';
+                    i--;
+                    break;
                 }
                 i++;
             }
-            if (input[i] != '\0'){
+            if (!prevIsntWhitespace){
+                i+=2;
+                continue;
+            }
+            if (input[i] == '\0'){
                 //Avoid redundant terminator character
                 i--;
             }
@@ -88,11 +96,11 @@ char** tokenize(char* input){
                 token_arr = realloc(token_arr, max_tokens);
             }
             
-            token_arr[num_tokens] = malloc(sizeof(char)*(i-j+1));
+            token_arr[num_tokens] = malloc(sizeof(char) * (i - j + 1));
             //Copy the characters
-            memcpy(token_arr[num_tokens], &(input[j]), i-j+1);
+            memcpy(token_arr[num_tokens], &(input[j]), i - j + 1);
             //Add terminator character
-            token_arr[i-j+1] = '\0';
+            token_arr[num_tokens][i - j + 1] = '\0';
 
             num_tokens++;
         }
