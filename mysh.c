@@ -53,6 +53,46 @@ void pwd() {
     free(buffer);
 }
 
+char** tokenize(char* input){
+    size_t max_tokens = 8;
+    char** token_arr = malloc(sizeof(char*) * max_tokens);
+    int num_tokens = 0;
+    char scanningWhitespace = 0;
+    int i = 0;
+    while (input[i] != '\0'){
+        if (scanningWhitespace){
+            //No whitespace detected here: start scanning this token
+            scanningWhitespace = 0;
+            //Count token length
+            int j = i;
+            while (input[i] != ' '){
+                i++;
+            }
+            if (input[i] != '\0'){
+                //Avoid redundant terminator character
+                i--;
+            }
+            if (num_tokens == max_tokens-1){
+                //More than "max_tokens" tokens in input, allow for more 
+                max_tokens *= 2;
+                token_arr = realloc(token_arr, max_tokens);
+            }
+            //Copy the characters
+            memcpy(token_arr[num_tokens], &(input[j]), i-j+1);
+            //Add terminator character
+            token_arr[i-j+1] = '\0';
+
+            num_tokens++;
+        }
+        else{
+            //Move past whitespace
+            scanningWhitespace = 1;
+            while (input[i] == ' '){
+                i++;
+            }
+        }
+    }
+}
 
 int main(int argc, char* argv[]) {
     int file, bytes;
