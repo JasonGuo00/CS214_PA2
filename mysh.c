@@ -68,12 +68,12 @@ char** tokenize(char* input){
             int j = i;
             while (input[i] != ' ' && input[i] != "\0"){
                 if (input[i] == '<' || input[i] == ">" || input[i] == "|"){
-                    if (num_tokens == max_tokens-2){
-                        //More than "max_tokens" tokens in input, allow for more 
+                    prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == ">" || input[i-1] == "|"));
+                    if (num_tokens == max_tokens-1-prevIsntWhitespace){
+                        //More than "max_tokens"(-1) tokens in input, allow for more 
                         max_tokens *= 2;
                         token_arr = realloc(token_arr, max_tokens);
                     }
-                    int prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == ">" || input[i-1] == "|"));
                     token_arr[num_tokens+prevIsntWhitespace] = malloc(2);
                     memcpy(token_arr[num_tokens+1], &(input[i]), 1);
                     token_arr[num_tokens+prevIsntWhitespace][2] = '\0';
