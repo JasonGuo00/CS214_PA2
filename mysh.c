@@ -12,6 +12,49 @@
 char* lineBuffer;
 int lineLength;
 
+int searchFile(char* file) {
+    struct stat block;
+    char* path = malloc(128);
+    // Check /usr/local/sbin
+    strcpy(path, "/usr/local/sbin");
+    strcat(path, file);
+    if(stat(file, &block) != -1) {
+        return 0;
+    }
+    // Check /usr/local/bin
+    strcpy(path, "/usr/local/bin");
+    strcat(path, file);
+    if(stat(file, &block) != -1){
+        return 0;
+    }
+    // Check /usr/sbin
+    strcpy(path, "/usr/sbin");
+    strcat(path, file);
+    if(stat(file, &block) != -1){
+        return 0;
+    }
+    // Check /usr/bin
+    strcpy(path, "/usr/bin");
+    strcat(path, file);
+    if(stat(file, &block) != -1){
+        return 0;
+    }
+    // Check /sbin
+    strcpy(path, "/sbin");
+    strcat(path, file);
+    if(stat(file, &block) != -1){
+        return 0;
+    }
+    // Check /bin
+    strcpy(path, "/bin");
+    strcat(path, file);
+    if(stat(file, &block) != -1){
+        return 0;
+    }
+    perror("Error: ");
+    return 1;
+}
+
 int cd(char* path) {
     // Check if path is accessible
     struct stat block;
@@ -66,7 +109,7 @@ char** tokenize(char* input){
             //Count token length
             int j = i;
             while (input[i] != ' '){
-                if (input[i] == '<' || input[i] == ">" || input[i] == "|"){
+                if (input[i] == '<' || input[i] == '>' || input[i] == '|'){
                     if (num_tokens == max_tokens-1){
                         //More than "max_tokens" tokens in input, allow for more 
                         max_tokens *= 2;
@@ -92,7 +135,7 @@ char** tokenize(char* input){
             //Copy the characters
             memcpy(token_arr[num_tokens], &(input[j]), i-j+1);
             //Add terminator character
-            token_arr[i-j+1] = '\0';
+            *token_arr[i-j+1] = '\0';
 
             num_tokens++;
         }
@@ -157,7 +200,7 @@ int main(int argc, char* argv[]) {
                         return EXIT_SUCCESS;
                     }
                     else if(strcmp(lineBuffer, "pwd\n") == 0) {
-                        pwd();
+                        searchFile("dog");
                     }
                     lineStart = i+1;
                 }
