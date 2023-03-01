@@ -77,6 +77,8 @@ char** tokenize(char* input){
                 max_tokens *= 2;
                 token_arr = realloc(token_arr, max_tokens);
             }
+            
+            token_arr[num_tokens] = malloc(sizeof(char)*(i-j+1));
             //Copy the characters
             memcpy(token_arr[num_tokens], &(input[j]), i-j+1);
             //Add terminator character
