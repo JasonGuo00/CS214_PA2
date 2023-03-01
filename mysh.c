@@ -64,7 +64,7 @@ char** tokenize(char* input){
             //No whitespace detected here: start scanning this token
             scanningWhitespace = 0;
             //Count token length
-            int prevIsntWhitespace = 0;
+            int prevIsntWhitespace = 1;
             int j = i;
             while (input[i] != ' ' && input[i] != "\0"){
                 if (input[i] == '<' || input[i] == ">" || input[i] == "|"){
