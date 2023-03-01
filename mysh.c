@@ -109,18 +109,11 @@ char** tokenize(char* input){
             //Count token length
             int prevIsntWhitespace = 1;
             int j = i;
-<<<<<<< HEAD
-            while (input[i] != ' '){
+            while (input[i] != ' ' && input[i] != '\0'){
                 if (input[i] == '<' || input[i] == '>' || input[i] == '|'){
-                    if (num_tokens == max_tokens-1){
-                        //More than "max_tokens" tokens in input, allow for more 
-=======
-            while (input[i] != ' ' && input[i] != "\0"){
-                if (input[i] == '<' || input[i] == ">" || input[i] == "|"){
-                    prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == ">" || input[i-1] == "|"));
+                    prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == '>' || input[i-1] == '|'));
                     if (num_tokens == max_tokens-1-prevIsntWhitespace){
                         //More than "max_tokens"(-1) tokens in input, allow for more 
->>>>>>> 0588dff6960968cd19ac15d114b607ac6ccd2a84
                         max_tokens *= 2;
                         token_arr = realloc(token_arr, max_tokens);
                     }
@@ -150,12 +143,7 @@ char** tokenize(char* input){
             //Copy the characters
             memcpy(token_arr[num_tokens], &(input[j]), i - j + 1);
             //Add terminator character
-<<<<<<< HEAD
-            *token_arr[i-j+1] = '\0';
-=======
             token_arr[num_tokens][i - j + 1] = '\0';
->>>>>>> 0588dff6960968cd19ac15d114b607ac6ccd2a84
-
             num_tokens++;
         }
         else{
