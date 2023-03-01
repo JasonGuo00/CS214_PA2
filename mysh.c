@@ -92,6 +92,7 @@ char** tokenize(char* input){
             }
         }
     }
+    return token_arr;
 }
 
 int main(int argc, char* argv[]) {
