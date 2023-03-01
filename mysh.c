@@ -66,6 +66,16 @@ char** tokenize(char* input){
             //Count token length
             int j = i;
             while (input[i] != ' '){
+                if (input[i] == '<' || input[i] == ">" || input[i] == "|"){
+                    if (num_tokens == max_tokens-1){
+                        //More than "max_tokens" tokens in input, allow for more 
+                        max_tokens *= 2;
+                        token_arr = realloc(token_arr, max_tokens);
+                    }
+                    token_arr[num_tokens] = malloc(1);
+                    memcpy(token_arr[num_tokens], &(input[i]), 1);
+                    num_tokens++;
+                }
                 i++;
             }
             if (input[i] != '\0'){
