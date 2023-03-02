@@ -177,14 +177,14 @@ char** tokenize(char* input, int* numTokens){
             while (input[i] != ' ' && input[i] != '\0' && input[i] != '<' && input[i] != '>' && input[i] != '|'){
                 i++;
             }
-            if (i == j){
-                i++;
-                continue;
-            }
             if (input[i] == '\0'){
                 //Avoid redundant terminator character or new line character
                 i--;
             }
+            if (i == j){
+                break;
+            }
+
             if (num_tokens == max_tokens-1){
                 //More than "max_tokens" tokens in input, allow for more 
                 max_tokens *= 2;
