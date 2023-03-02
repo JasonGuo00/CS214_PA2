@@ -5,66 +5,89 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #define BUF_SIZE 4096
 
 
 char* lineBuffer;
 int lineLength;
+int lastExit = 0;
+
+int searchPath(char* path) {
+    struct stat block;
+    if(stat(path, &block) == -1) {
+        // File DNE, or unaccessible
+        return 0;
+    }
+    // File exists
+    return 1;
+}
+
+char* obtainParent(char* path) {
+    int i = 0, lastSlash;
+    while(path[i] != '\0') {
+        if(path[i] == '/') {lastSlash = i;}
+    }
+    char* parentPath = malloc(lastSlash + 1);
+    for(i = 0; i < lastSlash; i++) {
+        parentPath[i] = path[i];
+    }
+    return parentPath;
+}
 
 int searchFile(char* file) {
     struct stat block;
     char* path = malloc(128);
+    lastExit = 0;
     // Check /usr/local/sbin
-    strcpy(path, "/usr/local/sbin");
+    strcpy(path, "/usr/local/sbin/");
     strcat(path, file);
     if(stat(file, &block) != -1) {
         return 0;
     }
     // Check /usr/local/bin
-    strcpy(path, "/usr/local/bin");
+    strcpy(path, "/usr/local/bin/");
     strcat(path, file);
     if(stat(file, &block) != -1){
         return 0;
     }
     // Check /usr/sbin
-    strcpy(path, "/usr/sbin");
+    strcpy(path, "/usr/sbin/");
     strcat(path, file);
     if(stat(file, &block) != -1){
         return 0;
     }
     // Check /usr/bin
-    strcpy(path, "/usr/bin");
+    strcpy(path, "/usr/bin/");
     strcat(path, file);
     if(stat(file, &block) != -1){
         return 0;
     }
     // Check /sbin
-    strcpy(path, "/sbin");
+    strcpy(path, "/sbin/");
     strcat(path, file);
     if(stat(file, &block) != -1){
         return 0;
     }
     // Check /bin
-    strcpy(path, "/bin");
+    strcpy(path, "/bin/");
     strcat(path, file);
     if(stat(file, &block) != -1){
         return 0;
     }
     perror("Error: ");
+    lastExit = 1;
     return 1;
 }
 
 int cd(char* path) {
-    // Check if path is accessible
-    struct stat block;
-    if(stat(path, &block) == -1) {
-        return -1;
+    int ret = chdir(path);
+    if(ret == -1) {
+        lastExit = 1;
     }
-    // Change directory
-    else {
-      return chdir(path);  
-    }
+    perror("Error: ");
+    return ret;
 }
 
 void pwd() {
@@ -94,6 +117,49 @@ void pwd() {
     // Return path, free buffer
     write(1, buffer, pathSize+1);
     free(buffer);
+}
+
+int isWild(char* token, int* asterisk, int* totalChars) {
+    int i = 0, isWild = 0;
+    while(token[i] != '\0') {
+        if(token[i] == '*') {
+            isWild = 1;
+            *asterisk = i;
+        }
+    }
+    *totalChars = i;
+    return isWild;
+}
+
+int identifyWild(char* fileName, char* pattern, int asterisk, int totalChars) {
+    int num_front = asterisk;
+    int num_end =  totalChars - asterisk - 1;
+    printf("%d %d\n", num_front, num_end);
+    int fileNameSize = 0;
+    while(fileName[fileNameSize] != '\0') {fileNameSize++;}
+    printf("%d\n", fileNameSize);
+    if(fileNameSize < num_front+num_end) {
+        return 0;
+    }
+    else {
+        if(num_front > 0) {
+            for(int i = 0; i < num_front; i++) {
+            if(fileName[i] != pattern[i]) {
+                return 0;
+            }
+            }
+        }
+        if(num_end > 0) {
+            int temp = asterisk+1;
+            for(int i = fileNameSize - num_end; i < fileNameSize; i++) {
+                if(fileName[i] != pattern[temp]) {
+                    return 0;
+                }
+                temp++;
+            }
+        }
+        return 1;
+    }
 }
 
 char** tokenize(char* input, int* numTokens){
@@ -134,6 +200,7 @@ char** tokenize(char* input, int* numTokens){
                 i--;
             }
             if(i <= j) {
+                // End search if at an edge case
                 break;
             }
             if (num_tokens == max_tokens-1){
@@ -161,7 +228,48 @@ char** tokenize(char* input, int* numTokens){
     return token_arr;
 }
 
+void executeProgram(char** tokens, int numTokens) {
+    char* parentPath = obtainParent(tokens[0]);
+    DIR* directory = opendir(parentPath);
+    struct dirent *dir;
+    for(int i = 1; i < numTokens; i++) {
+        // Case: Wildcards
+        int asterisk = -1, totalChars = -1;
+        if(isWild(tokens[i], &asterisk, &totalChars)) {
+            // Read through directory to find files that fit the wildcard pattern
+            while((dir = readdir(directory)) != NULL) {
+                if(identifyWild(dir->d_name, tokens[i], asterisk, totalChars)) {
+                    // found a file that will be passed as an argument
+                    // pass the file name in as an argument
+                }
+            }
+        }
+        // Case: Redirection < (input)
+        else if(tokens[i] == '<') {
+
+        }
+        // Case: Redirection > (output)
+        else if(tokens[i] == '>') {
+
+        }
+        // Case: Sub Command
+        else if(tokens[i] == '|') {
+
+        }
+        // Case: Default, token is read as a argument
+        else {
+            
+        }
+    }
+    free(parentPath);
+}
+
 void interpreter(char** tokens, int numTokens) {
+    // Path mode
+    if(tokens[0][0] == '/') {
+        // Path mode shit here ...
+    }
+    // Built in Commands Mode
     if(strcmp(tokens[0],"cd") == 0 && numTokens == 2) {
         cd(tokens[1]);
     }
@@ -171,6 +279,12 @@ void interpreter(char** tokens, int numTokens) {
     if(strcmp(tokens[0],"search") == 0 && numTokens == 2) {
         searchFile(tokens[1]);
     }
+    // Neither Path nor Built-in Command
+    searchFile(tokens[0]);
+    if(lastExit == 0) {     // Means that a file with the given name has been found
+        // Execute the file with the given name
+    }
+
     // Free the tokenized line
     for(int i = 0; i < numTokens; i++) {
         free(tokens[i]);
@@ -195,6 +309,7 @@ int main(int argc, char* argv[]) {
             lineBuffer[bytes] = '\0';
             // Exit Condition
             if(strcmp(lineBuffer, "exit\n") == 0) {
+                write(1, "mysh> exiting...\n", 17);
                 close(file);
                 free(buffer);
                 free(lineBuffer);
@@ -204,7 +319,13 @@ int main(int argc, char* argv[]) {
             int numTokens;
             char** tokens = tokenize(lineBuffer, &numTokens);
             interpreter(tokens, numTokens);
-            write(1, "mysh> ", 7);
+            // The terminal prompt: Preceded by ! if the last exit code was non zero / failed execution
+            if(lastExit != 0) {
+                write(1, "!mysh> ", 8);
+            }
+            else {
+                write(1, "mysh> ", 7);
+            }
         }
     }
     else if(argc == 2) {
@@ -220,6 +341,7 @@ int main(int argc, char* argv[]) {
                     lineBuffer[lineLength] = '\0';
                     // Exit condition
                     if(strcmp(lineBuffer, "exit\n") == 0) {
+                        write(1, "mysh> exiting...\n", 17);
                         close(file);
                         free(buffer);
                         free(lineBuffer);
