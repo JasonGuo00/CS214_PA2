@@ -225,7 +225,6 @@ list_t *tokenize(char *input)
             }
             if (i == j)
             {
-                i++;
                 break;
             }
             int str_size = i - j + 1;
@@ -233,26 +232,48 @@ list_t *tokenize(char *input)
             {
                 i++;
             }
-            char* str = malloc(sizeof(char) * (str_size));
+            char referencesHomeDir = 0;
+            if (str_size > 1){
+                //long enough to be a reference to the home directory
+                if (input[j] == '~' && input[j+1] == '/'){
+                    referencesHomeDir = 1;
+                }
+            }
+            char* str;
+            if (!referencesHomeDir){
+                str = malloc(sizeof(char) * (str_size));
+            }
+            else{
+                char* homeDir = getenv("HOME");
+                int homeDirLength = 0;
+                while (homeDir[homeDirLength] != '\0'){
+                    homeDirLength++;
+                }
+                str = malloc(sizeof(char) * (str_size+homeDirLength));
+                memcpy(str, homeDir, homeDirLength+1);
+                referencesHomeDir = homeDirLength;
+            }
+            
             // Copy the characters
-            memcpy(str, &(input[j]), str_size);
+            memcpy(str+referencesHomeDir, &(input[j+(referencesHomeDir != 0)]), str_size);
             // Add terminator character
-            str[str_size - 1] = '\0';
+            str[str_size+referencesHomeDir - 1 - (referencesHomeDir != 0)] = '\0';
             // Push token into the array
             al_push(token_arr, str);
 
-            // printf("%s\n", token_arr[num_tokens]);
             for (int x = 0; x < str_size; x++)
             {
                 if (token_arr->data[token_arr->size-1][x] == '\\')
                 {
-                    char isNewline = token_arr->data[token_arr->size-1][x + 1] == 'n';
+                    char isNewline = token_arr->data[token_arr->size-1][x + 1] == '\\' && token_arr->data[token_arr->size-1][x + 1] == 'n';
                     for (int y = x; y < str_size - 1 - isNewline; y++)
                     {
                         token_arr->data[token_arr->size-1][y] = token_arr->data[token_arr->size-1][y + 1 + isNewline];
                     }
                 }
             }
+
+           //printf("%s\n", str);
         }
         else
         {
@@ -267,16 +288,15 @@ list_t *tokenize(char *input)
                     str2[0] = input[i];
                     str2[1] = '\0';
                     al_push(token_arr, str2);
-                    // printf("%s\n", token_arr[num_tokens]);
                 }
                 i++;
                 isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|';
             }
         }
     }
-    for(int x = 0; x < token_arr->size; x++) {
+    /*for(int x = 0; x < token_arr->size; x++) {
         printf("%s\n", token_arr->data[x]);
-    }
+    }*/
     return token_arr;
 }
 
@@ -329,7 +349,7 @@ void executeProgram(list_t* tokens) {
     al_destroy(arguments);
     free(arguments);
     free(parentPath);
-    free(programName)
+    free(programName);
 }
 
 void interpreter(list_t* tokens) {
@@ -342,8 +362,14 @@ void interpreter(list_t* tokens) {
         // Path mode shit here ...
     }
     // Built in Commands Mode
-    if(strcmp(tokens->data[0],"cd") == 0 && tokens->size == 2) {
-        cd(tokens->data[1]);
+    if(strcmp(tokens->data[0],"cd") == 0) {
+        if (tokens->size == 1){
+            char* homeDir = getenv("HOME");
+            cd(homeDir);
+        }
+        else{
+            cd(tokens->data[1]);
+        }
     }
     if(strcmp(tokens->data[0],"pwd") == 0 && tokens->size == 1) {
         pwd();
