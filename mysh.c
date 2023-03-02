@@ -163,11 +163,13 @@ int identifyWild(char* fileName, char* pattern, int asterisk, int totalChars) {
     }
 }
 
-char **tokenize(char *input, int *numTokens)
+list_t *tokenize(char *input)
 {
-    size_t max_tokens = 8;
-    char **token_arr = malloc(sizeof(char *) * max_tokens);
-    int num_tokens = 0;
+    if(strcmp(input, "\n") == 0) {
+        return NULL;
+    }    
+    list_t* token_arr = malloc(sizeof(list_t));
+    al_init(token_arr, 8);
     char scanningWhitespace = 0;
     int i = 0;
     while (input[i] != '\0')
@@ -217,37 +219,31 @@ char **tokenize(char *input, int *numTokens)
                 i++;
                 break;
             }
-            if (num_tokens == max_tokens - 1)
-            {
-                // More than "max_tokens" tokens in input, allow for more
-                max_tokens *= 2;
-                token_arr = (char **)realloc(token_arr, sizeof(char *) * max_tokens);
-            }
             int str_size = i - j + 1;
             if (input[i] == '\n')
             {
                 i++;
             }
-            token_arr[num_tokens] = malloc(sizeof(char) * (str_size));
+            char* str = malloc(sizeof(char) * (str_size));
             // Copy the characters
-            memcpy(token_arr[num_tokens], &(input[j]), str_size);
+            memcpy(str, &(input[j]), str_size);
             // Add terminator character
-            token_arr[num_tokens][str_size - 1] = '\0';
+            str[str_size - 1] = '\0';
+            // Push token into the array
+            al_push(token_arr, str);
 
             // printf("%s\n", token_arr[num_tokens]);
             for (int x = 0; x < str_size; x++)
             {
-                if (token_arr[num_tokens][x] == '\\')
+                if (token_arr->data[token_arr->size-1][x] == '\\')
                 {
-                    char isNewline = token_arr[num_tokens][x + 1] == 'n';
+                    char isNewline = token_arr->data[token_arr->size-1][x + 1] == 'n';
                     for (int y = x; y < str_size - 1 - isNewline; y++)
                     {
-                        token_arr[num_tokens][y] = token_arr[num_tokens][y + 1 + isNewline];
+                        token_arr->data[token_arr->size-1][y] = token_arr->data[token_arr->size-1][y + 1 + isNewline];
                     }
                 }
             }
-
-            num_tokens++;
         }
         else
         {
@@ -258,59 +254,55 @@ char **tokenize(char *input, int *numTokens)
             {
                 if (isSpecial)
                 {
-                    if (num_tokens == max_tokens - 1)
-                    {
-                        // More than "max_tokens" tokens in input, allow for more
-                        max_tokens *= 2;
-                        token_arr = (char **)realloc(token_arr, sizeof(char *) * max_tokens);
-                    }
-                    token_arr[num_tokens] = malloc(sizeof(char) * 2);
-                    token_arr[num_tokens][0] = input[i];
-                    token_arr[num_tokens][1] = '\0';
-                    printf("%s\n", token_arr[num_tokens]);
-                    num_tokens++;
+                    char* str2 = malloc(sizeof(char) * 2);
+                    str2[0] = input[i];
+                    str2[1] = '\0';
+                    al_push(token_arr, str2);
+                    // printf("%s\n", token_arr[num_tokens]);
                 }
                 i++;
                 isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|';
             }
         }
     }
-    *numTokens = num_tokens;
+    for(int x = 0; x < token_arr->size; x++) {
+        printf("%s\n", token_arr->data[x]);
+    }
     return token_arr;
 }
 
-void executeProgram(char** tokens, int numTokens) {
+void executeProgram(list_t* tokens) {
     int pipe(int[2]);
 
     // Obtain the path of the directory encapsulating the program
-    char* parentPath = obtainParent(tokens[0]);
+    char* parentPath = obtainParent(tokens->data[0]);
     // Open the directory 
     DIR* directory = opendir(parentPath);
     struct dirent *dir;
     // Main loop
-    for(int i = 1; i < numTokens; i++) {
+    for(int i = 1; i < tokens->size; i++) {
         // Case: Wildcards
         int asterisk = -1, totalChars = -1;
-        if(isWild(tokens[i], &asterisk, &totalChars)) {
+        if(isWild(tokens->data[i], &asterisk, &totalChars)) {
             // Read through directory to find files that fit the wildcard pattern
             while((dir = readdir(directory)) != NULL) {
-                if(identifyWild(dir->d_name, tokens[i], asterisk, totalChars)) {
+                if(identifyWild(dir->d_name, tokens->data[i], asterisk, totalChars)) {
                     // found a file that will be passed as an argument
                     // pass the file name in as an argument
                 }
             }
         }
         // Case: Redirection < (input)
-        else if(tokens[i] == '<') {
+        else if(tokens->data[i][0] == '<') {
             // Take tokens[i+1] as the input of the pipe
 
         }
         // Case: Redirection > (output)
-        else if(tokens[i] == '>') {
+        else if(tokens->data[i][0] == '>') {
             // Take tokens[i+1] as the output of the pipe
         }
         // Case: Sub Command
-        else if(tokens[i] == '|') {
+        else if(tokens->data[i][0] == '|') {
             // Everything to the right of the bar is a subcommand
 
         }
@@ -322,31 +314,33 @@ void executeProgram(char** tokens, int numTokens) {
     free(parentPath);
 }
 
-void interpreter(char** tokens, int numTokens) {
+void interpreter(list_t* tokens) {
+    // terminal ignores empty lines
+    if(tokens == NULL) {
+        return;
+    }
     // Path mode
-    if(tokens[0][0] == '/') {
+    if(tokens->data[0][0] == '/') {
         // Path mode shit here ...
     }
     // Built in Commands Mode
-    if(strcmp(tokens[0],"cd") == 0 && numTokens == 2) {
-        cd(tokens[1]);
+    if(strcmp(tokens->data[0],"cd") == 0 && tokens->size == 2) {
+        cd(tokens->data[1]);
     }
-    if(strcmp(tokens[0],"pwd") == 0 && numTokens == 1) {
+    if(strcmp(tokens->data[0],"pwd") == 0 && tokens->size == 1) {
         pwd();
     }
-    if(strcmp(tokens[0],"search") == 0 && numTokens == 2) {
-        searchFile(tokens[1]);
+    if(strcmp(tokens->data[0],"search") == 0 && tokens->size == 2) {
+        searchFile(tokens->data[1]);
     }
     // Neither Path nor Built-in Command
-    searchFile(tokens[0]);
+    searchFile(tokens->data[0]);
     if(lastExit == 0) {     // Means that a file with the given name has been found
         // Execute the file with the given name
     }
 
     // Free the tokenized line
-    for(int i = 0; i < numTokens; i++) {
-        free(tokens[i]);
-    }
+    al_destroy(tokens);
     free(tokens);
 }
 
@@ -374,9 +368,8 @@ int main(int argc, char* argv[]) {
                 return 0;
             }
             // Interpret Line
-            int numTokens;
-            char** tokens = tokenize(lineBuffer, &numTokens);
-            interpreter(tokens, numTokens);
+            list_t* tokens = tokenize(lineBuffer);
+            interpreter(tokens);
             // The terminal prompt: Preceded by ! if the last exit code was non zero / failed execution
             if(lastExit != 0) {
                 write(1, "!mysh> ", 8);
@@ -406,9 +399,8 @@ int main(int argc, char* argv[]) {
                         return 0;
                     }
                     // Do something with lineBuffer here
-                    int numTokens;
-                    char** tokens = tokenize(lineBuffer, &numTokens);
-                    interpreter(tokens, numTokens);
+                    list_t* tokens = tokenize(lineBuffer);
+                    interpreter(tokens);
                     // Set the starting position of the next line in the buffer
                     lineStart = i+1;
                 }
