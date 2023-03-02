@@ -34,11 +34,11 @@ int al_init(list_t *list, unsigned capacity)
 	return list->data != NULL;
 }
 
-void al_destroy(list_t *list, unsigned capacity)
+void al_destroy(list_t *list)
 {
 	if (DEBUG > 1) fprintf(stderr, "Destroying %p\n", list);
 	SAFETY_CHECK
-	for(int i = 0; i < capacity; i++) {
+	for(int i = 0; i < list->size; i++) {
 		free(list->data[i]);
 	}
 	free(list->data);
@@ -82,7 +82,7 @@ int al_push(list_t *list, char* str)
 
 	if (list->size == list->capacity) {
 		int newcap = list->capacity * 2;
-		int *new = realloc(list->data, sizeof(int) * newcap);
+		char **new = realloc(list->data, sizeof(char*) * newcap);
 		if (DEBUG) fprintf(stderr, "increase capacity of %p to %d\n", list, newcap);
 		if (!new) return 0;
 

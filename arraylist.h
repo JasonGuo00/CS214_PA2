@@ -8,7 +8,7 @@ typedef struct {
 } list_t;
 
 int  al_init(list_t *list, unsigned capacity);
-void al_destroy(list_t *list, unsigned capacity);
+void al_destroy(list_t *list);
 
 unsigned al_length(list_t *list);
 int al_insert(list_t *list, unsigned index, char* src);

@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include "arraylist.h"
 
 #define BUF_SIZE 4096
 
@@ -229,9 +230,14 @@ char** tokenize(char* input, int* numTokens){
 }
 
 void executeProgram(char** tokens, int numTokens) {
+    int pipe(int[2]);
+
+    // Obtain the path of the directory encapsulating the program
     char* parentPath = obtainParent(tokens[0]);
+    // Open the directory 
     DIR* directory = opendir(parentPath);
     struct dirent *dir;
+    // Main loop
     for(int i = 1; i < numTokens; i++) {
         // Case: Wildcards
         int asterisk = -1, totalChars = -1;
@@ -246,19 +252,21 @@ void executeProgram(char** tokens, int numTokens) {
         }
         // Case: Redirection < (input)
         else if(tokens[i] == '<') {
+            // Take tokens[i+1] as the input of the pipe
 
         }
         // Case: Redirection > (output)
         else if(tokens[i] == '>') {
-
+            // Take tokens[i+1] as the output of the pipe
         }
         // Case: Sub Command
         else if(tokens[i] == '|') {
+            // Everything to the right of the bar is a subcommand
 
         }
         // Case: Default, token is read as a argument
         else {
-            
+            // Pass token as a argument
         }
     }
     free(parentPath);
