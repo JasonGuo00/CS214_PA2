@@ -163,65 +163,115 @@ int identifyWild(char* fileName, char* pattern, int asterisk, int totalChars) {
     }
 }
 
-char** tokenize(char* input, int* numTokens){
+char **tokenize(char *input, int *numTokens)
+{
     size_t max_tokens = 8;
-    char** token_arr = malloc(sizeof(char*) * max_tokens);
+    char **token_arr = malloc(sizeof(char *) * max_tokens);
     int num_tokens = 0;
     char scanningWhitespace = 0;
     int i = 0;
-    while (input[i] != '\0'){
-        if (scanningWhitespace){
-            //No whitespace detected here: start scanning this token
+    while (input[i] != '\0')
+    {
+        // printf("scanning whitespace: %d, i = %d\n", scanningWhitespace, i);
+
+        if (scanningWhitespace)
+        {
+            // No whitespace detected here: start scanning this token
             scanningWhitespace = 0;
-            //Count token length
-            int prevIsntWhitespace = 1;
+            // Count token length
             int j = i;
-            while (input[i] != ' ' && input[i] != '\0' && input[i] != '\n'){
-                if (input[i] == '<' || input[i] == '>' || input[i] == '|'){
-                    prevIsntWhitespace = !(input[i-1] == ' ' && i > -1 && !(input[i-1] == '<' || input[i-1] == '>' || input[i-1] == '|'));
-                    if (num_tokens == max_tokens-1-prevIsntWhitespace){
-                        //More than "max_tokens"(-1) tokens in input, allow for more 
-                        max_tokens *= 2;
-                        token_arr = realloc(token_arr, max_tokens);
+            char isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|' || input[i] == ' ';
+            if (!isSpecial)
+            {
+                while (input[i] != '\0')
+                {
+                    i++;
+                    isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|' || input[i] == ' ';
+                    if (isSpecial)
+                    {
+                        if (input[i - 1] == '\\')
+                        {
+                            if (i > 1)
+                            {
+                                if (input[i - 2] == '\\')
+                                {
+                                    break;
+                                }
+                            }
+                            i++;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
-                    token_arr[num_tokens+prevIsntWhitespace] = malloc(2);
-                    memcpy(token_arr[num_tokens+1], &(input[i]), 1);
-                    token_arr[num_tokens+prevIsntWhitespace][2] = '\0';
-                    i--;
-                    break;
                 }
-                i++;
             }
-            if (!prevIsntWhitespace){
-                i+=2;
-                continue;
-            }
-            if (input[i] == '\0' || input[i] == '\n'){
-                //Avoid redundant terminator character or new line character
+            if (input[i] == '\0')
+            {
+                // Avoid redundant terminator character or new line character
                 i--;
             }
-            if(i <= j) {
-                // End search if at an edge case
+            if (i == j)
+            {
+                i++;
                 break;
             }
-            if (num_tokens == max_tokens-1){
-                //More than "max_tokens" tokens in input, allow for more 
+            if (num_tokens == max_tokens - 1)
+            {
+                // More than "max_tokens" tokens in input, allow for more
                 max_tokens *= 2;
-                token_arr = realloc(token_arr, max_tokens);
+                token_arr = (char **)realloc(token_arr, sizeof(char *) * max_tokens);
             }
-            
-            token_arr[num_tokens] = malloc(sizeof(char) * (i - j + 1));
-            //Copy the characters
-            memcpy(token_arr[num_tokens], &(input[j]), i - j + 1);
-            //Add terminator character -> if line ends with a \n, then replace it with the null terminator
-            token_arr[num_tokens][i - j + 1] = '\0'; 
+            int str_size = i - j + 1;
+            if (input[i] == '\n')
+            {
+                i++;
+            }
+            token_arr[num_tokens] = malloc(sizeof(char) * (str_size));
+            // Copy the characters
+            memcpy(token_arr[num_tokens], &(input[j]), str_size);
+            // Add terminator character
+            token_arr[num_tokens][str_size - 1] = '\0';
+
+            // printf("%s\n", token_arr[num_tokens]);
+            for (int x = 0; x < str_size; x++)
+            {
+                if (token_arr[num_tokens][x] == '\\')
+                {
+                    char isNewline = token_arr[num_tokens][x + 1] == 'n';
+                    for (int y = x; y < str_size - 1 - isNewline; y++)
+                    {
+                        token_arr[num_tokens][y] = token_arr[num_tokens][y + 1 + isNewline];
+                    }
+                }
+            }
+
             num_tokens++;
         }
-        else{
-            //Move past whitespace
+        else
+        {
+            // Move past whitespace
             scanningWhitespace = 1;
-            while (input[i] == ' '){
+            char isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|';
+            while (input[i] == ' ' || isSpecial)
+            {
+                if (isSpecial)
+                {
+                    if (num_tokens == max_tokens - 1)
+                    {
+                        // More than "max_tokens" tokens in input, allow for more
+                        max_tokens *= 2;
+                        token_arr = (char **)realloc(token_arr, sizeof(char *) * max_tokens);
+                    }
+                    token_arr[num_tokens] = malloc(sizeof(char) * 2);
+                    token_arr[num_tokens][0] = input[i];
+                    token_arr[num_tokens][1] = '\0';
+                    printf("%s\n", token_arr[num_tokens]);
+                    num_tokens++;
+                }
                 i++;
+                isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|';
             }
         }
     }
