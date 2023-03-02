@@ -25,15 +25,24 @@ int searchPath(char* path) {
     return 1;
 }
 
-char* obtainParent(char* path) {
+char* obtainParent(char* path, char** filename) {
     int i = 0, lastSlash;
     while(path[i] != '\0') {
         if(path[i] == '/') {lastSlash = i;}
     }
+    int totalLength = i;
     char* parentPath = malloc(lastSlash + 1);
+    *filename = malloc(i - lastSlash); 
     for(i = 0; i < lastSlash; i++) {
         parentPath[i] = path[i];
     }
+    parentPath[i+1] = '\0';
+    i = 0;
+    for(int x = lastSlash+1; x < totalLength; x++) {
+        // get the file name
+        *filename[i] = path[x];
+    }
+    *filename[i+1] = '\0';
     return parentPath;
 }
 
@@ -273,9 +282,13 @@ list_t *tokenize(char *input)
 
 void executeProgram(list_t* tokens) {
     int pipe(int[2]);
+    list_t* arguments = malloc(sizeof(list_t));
 
     // Obtain the path of the directory encapsulating the program
-    char* parentPath = obtainParent(tokens->data[0]);
+    char* programName;
+    char* parentPath = obtainParent(tokens->data[0], &programName);
+    // Program takes its own name as an argument
+    al_push(arguments, programName);
     // Open the directory 
     DIR* directory = opendir(parentPath);
     struct dirent *dir;
@@ -287,6 +300,7 @@ void executeProgram(list_t* tokens) {
             // Read through directory to find files that fit the wildcard pattern
             while((dir = readdir(directory)) != NULL) {
                 if(identifyWild(dir->d_name, tokens->data[i], asterisk, totalChars)) {
+                    al_push(arguments, dir->d_name);
                     // found a file that will be passed as an argument
                     // pass the file name in as an argument
                 }
@@ -309,9 +323,13 @@ void executeProgram(list_t* tokens) {
         // Case: Default, token is read as a argument
         else {
             // Pass token as a argument
+            al_push(arguments, tokens->data[i]);
         }
     }
+    al_destroy(arguments);
+    free(arguments);
     free(parentPath);
+    free(programName)
 }
 
 void interpreter(list_t* tokens) {
