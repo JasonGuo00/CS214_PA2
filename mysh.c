@@ -15,6 +15,22 @@ char* lineBuffer;
 int lineLength;
 int lastExit = 0;
 
+typedef struct program{
+    list_t* arguments;
+    char* file;
+    char* input;
+    char* output;
+} Program;
+
+char* append(char* dest, char* toAppend) {
+    int dest_length = 0, append_length = 0;
+    while(dest[dest_length] != '\0') {dest_length++;}
+    while(toAppend[append_length] != '\0') {append_length++;}
+    dest = realloc(dest, dest_length + append_length + 1);
+    strcat(dest, toAppend);
+    return dest;
+}
+
 int searchPath(char* path) {
     struct stat block;
     if(stat(path, &block) == -1) {
@@ -29,66 +45,79 @@ char* obtainParent(char* path, char** filename) {
     int i = 0, lastSlash;
     while(path[i] != '\0') {
         if(path[i] == '/') {lastSlash = i;}
+        i++;
     }
     int totalLength = i;
-    char* parentPath = malloc(lastSlash + 1);
+    char* parentPath;
+    if(lastSlash == 0) {
+        parentPath = malloc(2);
+    }
+    else {
+        parentPath = malloc(lastSlash+1);
+    }
     *filename = malloc(i - lastSlash); 
     for(i = 0; i < lastSlash; i++) {
         parentPath[i] = path[i];
     }
-    parentPath[i+1] = '\0';
+    parentPath[i] = '\0';
+    // Case: File is in the root's directory
+    if(lastSlash == 0) {
+        parentPath[0] = '/';
+        parentPath[1] = '\0';
+    }
     i = 0;
     for(int x = lastSlash+1; x < totalLength; x++) {
         // get the file name
-        *filename[i] = path[x];
+        (*filename)[i] = path[x];
+        i++;
     }
-    *filename[i+1] = '\0';
+    (*filename)[i] = '\0';
     return parentPath;
 }
 
-int searchFile(char* file) {
+char* searchFile(char* file) {
     struct stat block;
-    char* path = malloc(128);
+    char* path = malloc(32);
     lastExit = 0;
     // Check /usr/local/sbin
     strcpy(path, "/usr/local/sbin/");
-    strcat(path, file);
-    if(stat(file, &block) != -1) {
-        return 0;
+    append(path, file);
+    if(stat(path, &block) != -1) {
+        return path;
     }
     // Check /usr/local/bin
     strcpy(path, "/usr/local/bin/");
-    strcat(path, file);
-    if(stat(file, &block) != -1){
-        return 0;
+    append(path, file);
+    if(stat(path, &block) != -1){
+        return path;
     }
     // Check /usr/sbin
     strcpy(path, "/usr/sbin/");
-    strcat(path, file);
-    if(stat(file, &block) != -1){
-        return 0;
+    append(path, file);
+    if(stat(path, &block) != -1){
+        return path;
     }
     // Check /usr/bin
     strcpy(path, "/usr/bin/");
-    strcat(path, file);
-    if(stat(file, &block) != -1){
-        return 0;
+    append(path, file);
+    if(stat(path, &block) != -1){
+        return path;
     }
     // Check /sbin
     strcpy(path, "/sbin/");
-    strcat(path, file);
-    if(stat(file, &block) != -1){
-        return 0;
+    append(path, file);
+    if(stat(path, &block) != -1){
+        return path;
     }
     // Check /bin
     strcpy(path, "/bin/");
-    strcat(path, file);
-    if(stat(file, &block) != -1){
-        return 0;
+    append(path, file);
+    if(stat(path, &block) != -1){
+        return path;
     }
     perror("Error: ");
     lastExit = 1;
-    return 1;
+    return NULL;
 }
 
 int cd(char* path) {
@@ -131,11 +160,14 @@ void pwd() {
 
 int isWild(char* token, int* asterisk, int* totalChars) {
     int i = 0, isWild = 0;
+    printf("Inside isWild\n");
     while(token[i] != '\0') {
+        printf("Iteration %d\n", i);
         if(token[i] == '*') {
             isWild = 1;
             *asterisk = i;
         }
+        i++;
     }
     *totalChars = i;
     return isWild;
@@ -280,56 +312,175 @@ list_t *tokenize(char *input)
     return token_arr;
 }
 
-void executeProgram(list_t* tokens) {
-    int pipe(int[2]);
-    list_t* arguments = malloc(sizeof(list_t));
+// int execute(char* executablePath, list_t* arguments) {
+//     pid_t pid1, pid2;
+//     int pipe(int fd[2]);
 
+//     // Command 1
+//     pid1 = fork();
+//     if(pid1 < 0) {
+//         perror("Error: failure in the fork for child 1");
+//         return -1;
+//     }
+//     else if(pid1 == 0) {
+//         // Child process 1: run the stuff
+//         if(execv(executablePath, arguments[0]->data) < 0) {
+//             perror("Error: ");
+//             return -1;
+//         }
+//     }
+
+//     // Command 2
+//     if(executablePath[2] != NULL) {
+//         pid2 = fork();
+//         if(pid2 < 0) {
+//             perror("Error: failure in the fork for child 2");
+//             return -1;
+//         }
+//         else if(pid2 == 0) {
+//             // Chid process 2: run the stuff
+//             if(execv(executablePath, arguments[1]->data) < 0) {
+//                 perror("Error: ");
+//                 return -1;
+//             }
+//         }
+//     }
+//     return 1;
+// }
+
+Program** parseArguments(list_t* tokens) {
+    Program** programList = malloc(sizeof(Program*));
+    list_t* arguments = malloc(sizeof(list_t));
+    al_init(arguments, tokens->size);
+    Program* program = malloc(sizeof(struct program));
+    printf("Checkpoint 1: Entered parseArguments\n");
+
+    // First token is not a pathway
+    if(tokens->data[0][0] != '/') {
+        // Find the path and rename the token as a pathway, or return NULL if path to file not found
+        char* name = searchFile(tokens->data[0]);
+        if(name != NULL) {
+            strcpy(tokens->data[0], name);
+        }
+        else {
+            return NULL;
+        }
+    }
+    // File name is taken
+    program->file = tokens->data[0];
     // Obtain the path of the directory encapsulating the program
     char* programName;
     char* parentPath = obtainParent(tokens->data[0], &programName);
+    printf("%s\n", program->file);
+    printf("Checkpoint 2: Obtain Parent Complete: Parent Path: %s File Name: %s\n", parentPath, programName);
     // Program takes its own name as an argument
     al_push(arguments, programName);
+    printf("Checkpoint 3: Pushed command name in as an argument\n");
     // Open the directory 
     DIR* directory = opendir(parentPath);
+    if(directory == NULL) {
+        perror("Error");
+        return NULL;
+    }
     struct dirent *dir;
     // Main loop
     for(int i = 1; i < tokens->size; i++) {
+        printf("Checkpoint 4: Entered main loop\n");
+
         // Case: Wildcards
         int asterisk = -1, totalChars = -1;
-        if(isWild(tokens->data[i], &asterisk, &totalChars)) {
+        if(isWild(tokens->data[i], &asterisk, &totalChars) == 1) {
             // Read through directory to find files that fit the wildcard pattern
+            write(1,"Special Checkpoing: Entered Wildcard Search\n",45);
+            int foundWildCard = 0;
             while((dir = readdir(directory)) != NULL) {
                 if(identifyWild(dir->d_name, tokens->data[i], asterisk, totalChars)) {
                     al_push(arguments, dir->d_name);
+                    foundWildCard = 1;
                     // found a file that will be passed as an argument
                     // pass the file name in as an argument
                 }
             }
+            // If no file matching the wildcard is found, then pass it as an argument to the program
+            if(!foundWildCard) {
+                al_push(arguments, tokens->data[i]);
+            }
         }
+
         // Case: Redirection < (input)
         else if(tokens->data[i][0] == '<') {
-            // Take tokens[i+1] as the input of the pipe
-
+            // Bad case: there is no argument after this token
+            if(i == tokens->size-1) {
+                printf("Error: no file to set input as.");
+                return NULL;
+            }
+            // Bad case: the argument after this token is invalid
+            if(strcmp(tokens->data[i+1], "<") == 0 || strcmp(tokens->data[i+1], ">") == 0 || strcmp(tokens->data[i+1], "|") == 0) {
+                printf("Error: argument after is invalid");
+                return NULL;
+            }
+            program->input = tokens->data[i+1];
+            i++;
         }
         // Case: Redirection > (output)
         else if(tokens->data[i][0] == '>') {
-            // Take tokens[i+1] as the output of the pipe
+            // Bad case: there is no argument after this token
+            if(i == tokens->size-1) {
+                printf("Error: no file to set input as.");
+                return NULL;
+            }
+            // Bad case: the argument after this token is invalid
+            if(strcmp(tokens->data[i+1], "<") == 0 || strcmp(tokens->data[i+1], ">") == 0 || strcmp(tokens->data[i+1], "|") == 0) {
+                printf("Error: argument after is invalid");
+                return NULL;
+            }
+            program->output = tokens->data[i+1];
+            i++;
         }
-        // Case: Sub Command
+        // Case: Sub Command Piping (|)
         else if(tokens->data[i][0] == '|') {
-            // Everything to the right of the bar is a subcommand
-
+            // Bad commands:
+            if(i == tokens->size-1 || strcmp(tokens->data[i+1], "<") == 0 || strcmp(tokens->data[i+1], ">") == 0 || strcmp(tokens->data[i+1], "|") == 0) {
+                printf("Error: argument after | is invalid");
+                return NULL;
+            }
+            // Everything to the right of the bar is a subcommand -> recursion
+            // Split the tokens at the point where the | occurs
+            list_t* splitTokens = malloc(sizeof(list_t));
+            al_init(splitTokens, tokens->size - i + 1);
+            for(int z = i+1; z < tokens->size; z++) {
+                splitTokens->data[z-i+-1] = tokens->data[z];
+            }
+            // Recursive call, get the returning list of commands (should only be one thing)
+            Program** subcommand_list = parseArguments(splitTokens);
+            if(subcommand_list == NULL) {
+                // There is some issue with the subcommand, terminate
+                printf("Error: Subcommand cannot be read.");
+                return NULL;
+            }
+            else {
+                // Subcommand's Program will be stored in the first element, read it in as the second element of the parent list
+                programList[1] = subcommand_list[0];
+                free(subcommand_list);
+                // Subcommand marks the end of the line, recursion will read the remainder
+                break;
+            }
         }
         // Case: Default, token is read as a argument
         else {
+            printf("Special Checkpoint: Adding argument to list\n");
             // Pass token as a argument
             al_push(arguments, tokens->data[i]);
         }
     }
-    al_destroy(arguments);
-    free(arguments);
-    free(parentPath);
-    free(programName)
+    program->arguments = arguments;
+    // al_destroy(arguments);
+    // free(arguments);
+    // free(parentPath);
+    // free(programName);
+    printf("END CHECKPOINT\n");
+    programList[0] = program;
+    return programList;
 }
 
 void interpreter(list_t* tokens) {
@@ -340,16 +491,29 @@ void interpreter(list_t* tokens) {
     // Path mode
     if(tokens->data[0][0] == '/') {
         // Path mode shit here ...
+        Program** programs = parseArguments(tokens);
+        if(programs == NULL) {
+            printf("Error: line is not executable");
+            return;
+        }
+        printf("%s\n", programs[0]->file);
+        for(int i = 0; i < programs[0]->arguments->size; i++) {
+            printf("%s\n", programs[0]->arguments->data[i]);
+        }
+        return;
     }
     // Built in Commands Mode
     if(strcmp(tokens->data[0],"cd") == 0 && tokens->size == 2) {
         cd(tokens->data[1]);
+        return;
     }
     if(strcmp(tokens->data[0],"pwd") == 0 && tokens->size == 1) {
         pwd();
+        return;
     }
     if(strcmp(tokens->data[0],"search") == 0 && tokens->size == 2) {
         searchFile(tokens->data[1]);
+        return;
     }
     // Neither Path nor Built-in Command
     searchFile(tokens->data[0]);
@@ -366,6 +530,11 @@ int main(int argc, char* argv[]) {
     int file, bytes;
     char* buffer = malloc(sizeof(char)*BUF_SIZE);
     lineBuffer = malloc(sizeof(char)*BUF_SIZE);
+
+    char* str1 = malloc(sizeof(char)* 10);
+    strcpy(str1, "dogman");
+    char* str2 = malloc(sizeof(char)*10);
+    strcpy(str2, "is cool");
 
     // Check whether we're in batch mode, interactive mode, or too many arguments were passed
     if(argc == 1) {
