@@ -160,9 +160,7 @@ void pwd() {
 
 int isWild(char* token, int* asterisk, int* totalChars) {
     int i = 0, isWild = 0;
-    printf("Inside isWild\n");
     while(token[i] != '\0') {
-        printf("Iteration %d\n", i);
         if(token[i] == '*') {
             isWild = 1;
             *asterisk = i;
@@ -369,10 +367,15 @@ list_t *tokenize(char *input)
 // }
 
 Program** parseArguments(list_t* tokens) {
-    Program** programList = malloc(sizeof(Program*));
+    // ProgramList: holds up to two programs that the shell will execute later
+    Program** programList = malloc(sizeof(Program*)*2);
+    // List of arguments that a program will take
     list_t* arguments = malloc(sizeof(list_t));
     al_init(arguments, tokens->size);
+    // Program structure: holds a program's name, arguments, and I/O's
     Program* program = malloc(sizeof(struct program));
+    program->input = NULL;
+    program->output = NULL;
     printf("Checkpoint 1: Entered parseArguments\n");
 
     // First token is not a pathway
@@ -466,12 +469,18 @@ Program** parseArguments(list_t* tokens) {
             }
             // Everything to the right of the bar is a subcommand -> recursion
             // Split the tokens at the point where the | occurs
+            printf("Special Checkpoint: Splitting Tokens\n");
             list_t* splitTokens = malloc(sizeof(list_t));
-            al_init(splitTokens, tokens->size - i + 1);
+            unsigned int numTokens = tokens->size - i -1;
+            al_init(splitTokens, numTokens);
+            printf("TOKENS FOR RECURSION:\n");
             for(int z = i+1; z < tokens->size; z++) {
-                splitTokens->data[z-i+-1] = tokens->data[z];
+                al_push(splitTokens,tokens->data[z]);
+                printf("%s\n", splitTokens->data[z-i-1]);
             }
+            printf("TOKENS SUCCESSFULLY SPLIT\n");
             // Recursive call, get the returning list of commands (should only be one thing)
+            printf("ENTERING SUBCOMMAND RECURSION\n");
             Program** subcommand_list = parseArguments(splitTokens);
             if(subcommand_list == NULL) {
                 // There is some issue with the subcommand, terminate
@@ -480,8 +489,10 @@ Program** parseArguments(list_t* tokens) {
             }
             else {
                 // Subcommand's Program will be stored in the first element, read it in as the second element of the parent list
+                printf("Special Checkpoint: POPULATING PARENT PROGRAM LIST\n");
                 programList[1] = subcommand_list[0];
                 free(subcommand_list);
+                printf("EXITING LOOP, SUBCOMMAND PROCESSED\n");
                 // Subcommand marks the end of the line, recursion will read the remainder
                 break;
             }
@@ -513,12 +524,46 @@ void interpreter(list_t* tokens) {
         // Path mode shit here ...
         Program** programs = parseArguments(tokens);
         if(programs == NULL) {
-            printf("Error: line is not executable");
+            printf("Error: line is not executable\n");
             return;
         }
-        printf("%s\n", programs[0]->file);
+        printf("----------PROGRAM 1---------\n");
+        printf("Executed Program Path: %s\n", programs[0]->file);
+        if(programs[0]->input != NULL) {
+            printf("Input: %s\n", programs[0]->input);
+        }
+        else {
+            printf("Input: STD_IN\n");
+        }
+        if(programs[0]->output != NULL) {
+            printf("Output: %s\n", programs[0]->output);
+        }
+        else {
+            printf("Output: STD_OUT\n");
+        }
+        printf("Arguments: \n");
         for(int i = 0; i < programs[0]->arguments->size; i++) {
             printf("%s\n", programs[0]->arguments->data[i]);
+        }
+        printf("----------Program 2----------\n");
+        if(programs[1] != NULL) {
+            printf("Executed Subcommand at Path: %s\n", programs[1]->file);
+            if(programs[1]->input != NULL) {
+                printf("Input: %s\n", programs[1]->input);
+            }
+            else {
+                printf("Input: STD_IN\n");
+            }
+            if(programs[1]->output != NULL) {
+                printf("Output: %s\n", programs[1]->output);
+            }
+            else {
+                printf("Output: STD_OUT\n");
+            }
+            printf("Arguments:\n");
+            for(int i = 1; i < programs[1]->arguments->size; i++) {
+                printf("%s\n", programs[1]->arguments->data[i]);
+            }
         }
         return;
     }
