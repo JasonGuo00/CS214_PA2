@@ -330,41 +330,45 @@ list_t *tokenize(char *input)
     return token_arr;
 }
 
-// int execute(char* executablePath, list_t* arguments) {
-//     pid_t pid1, pid2;
-//     int pipe(int fd[2]);
+int execute(Program** programs) {
+    pid_t pid1, pid2;
+    int pipe(int fd[2]);
+    int subExists = 0;
+    if(programs[1] != NULL) {
+        subExists = 1;
+    }
 
-//     // Command 1
-//     pid1 = fork();
-//     if(pid1 < 0) {
-//         perror("Error: failure in the fork for child 1");
-//         return -1;
-//     }
-//     else if(pid1 == 0) {
-//         // Child process 1: run the stuff
-//         if(execv(executablePath, arguments[0]->data) < 0) {
-//             perror("Error: ");
-//             return -1;
-//         }
-//     }
+    // Command 1
+    pid1 = fork();
+    if(pid1 < 0) {
+        perror("Error: failure in the fork for child 1");
+        return -1;
+    }
+    else if(pid1 == 0) {
+        // Child process 1: run the stuff
+        if(execv(programs[0]->file, programs[0]->arguments->data) < 0) {
+            perror("Error: ");
+            return -1;
+        }
+    }
 
-//     // Command 2
-//     if(executablePath[2] != NULL) {
-//         pid2 = fork();
-//         if(pid2 < 0) {
-//             perror("Error: failure in the fork for child 2");
-//             return -1;
-//         }
-//         else if(pid2 == 0) {
-//             // Chid process 2: run the stuff
-//             if(execv(executablePath, arguments[1]->data) < 0) {
-//                 perror("Error: ");
-//                 return -1;
-//             }
-//         }
-//     }
-//     return 1;
-// }
+    // Command 2 given that it exists
+    if(subExists) {
+        pid2 = fork();
+        if(pid2 < 0) {
+            perror("Error: failure in the fork for child 2");
+            return -1;
+        }
+        else if(pid2 == 0) {
+            // Chid process 2: run the stuff
+            if(execv(programs[1]->file, programs[1]->arguments->data) < 0) {
+                perror("Error: ");
+                return -1;
+            }
+        }
+    }
+    return 1;
+}
 
 Program** parseArguments(list_t* tokens) {
     // ProgramList: holds up to two programs that the shell will execute later
