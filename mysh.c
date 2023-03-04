@@ -332,10 +332,17 @@ list_t *tokenize(char *input)
 
 int execute(Program** programs) {
     pid_t pid1, pid2;
-    int pipe(int fd[2]);
+    int fd[2];
     int subExists = 0;
+    int main_output_fd = 1;
     if(programs[1] != NULL) {
         subExists = 1;
+    }
+
+    // Create first pipe
+    if(pipe(fd) == -1) {
+        perror("Error: ");
+        return -1;
     }
 
     // Command 1
@@ -346,28 +353,91 @@ int execute(Program** programs) {
     }
     else if(pid1 == 0) {
         // Child process 1: run the stuff
+        close(fd[0]);       // forbid the process from reading from the pipe
+        if(programs[0]->input != NULL) {
+            // input redirect
+            int new_input = open(programs[0]->input, O_RDONLY);
+            if(new_input == -1) {
+                perror("Redirect Error: ");
+                return -1;
+            }
+            // dup2 to redirect the input
+            dup2(fd[0], new_input);
+        }
+        if(programs[0]->output != NULL) {
+            // output redirect
+            main_output_fd = open(programs[0]->output, O_WRONLY | O_CREAT | O_TRUNC, 0640);
+            if(main_output_fd == -1) {
+                perror("Redirect Error: ");
+                return -1;
+            }
+            // dup2 to redirect the input
+            dup2(fd[1], main_output_fd);
+        }
         if(execv(programs[0]->file, programs[0]->arguments->data) < 0) {
             perror("Error: ");
             return -1;
         }
+        // fullt close child 1 pipes
+        close(fd[1]);
+        return 1;
     }
+    else {
+        // Parent process comes here
+        // Command 2 given that it exists
+        if(subExists) {
 
-    // Command 2 given that it exists
-    if(subExists) {
-        pid2 = fork();
-        if(pid2 < 0) {
-            perror("Error: failure in the fork for child 2");
-            return -1;
-        }
-        else if(pid2 == 0) {
-            // Chid process 2: run the stuff
-            if(execv(programs[1]->file, programs[1]->arguments->data) < 0) {
+            // Create second pipe
+            if(pipe(fd) == -1) {
                 perror("Error: ");
                 return -1;
             }
+
+            pid2 = fork();
+            if(pid2 < 0) {
+                perror("Error: failure in the fork for child 2");
+                return -1;
+            }
+            else if(pid2 == 0) {
+                // Chid process 2: run the stuff
+                close(fd[1]);       // forbid the process from writing to the pipe
+
+                // If sub command doesn't have input redirected, connect with the output of main
+                if((programs[1]->input == NULL)) {
+                    dup2(fd[0], main_output_fd);
+                }
+                if(programs[1]->output != NULL) {
+                    // output redirect
+                    int new_output = open(programs[1]->output, O_WRONLY | O_CREAT | O_TRUNC, 0640);
+                    if(new_output == -1) {
+                        perror("Redirect Error: ");
+                        return -1;
+                    }
+                    // dup2 to redirect the input
+                    dup2(fd[1], new_output);
+                }
+                if(execv(programs[1]->file, programs[1]->arguments->data) < 0) {
+                    perror("Error: ");
+                    return -1;
+                }
+                // fully close child 2 pipes
+                close(fd[0]);
+                return 1;
+            }
+            else {
+                // Parent process comes here
+                // Successful executions of both processes
+                return 1;
+            }
         }
+        // Close parent pipes
+        close(fd[0]);
+        close(fd[1]);
+        // Successful execution of one process
+        return 1;
     }
-    return 1;
+
+    
 }
 
 Program** parseArguments(list_t* tokens) {
