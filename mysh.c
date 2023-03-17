@@ -5,22 +5,49 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include<sys/wait.h>
 #include <dirent.h>
 #include "arraylist.h"
 
 #define BUF_SIZE 4096
 
-
-char* lineBuffer;
+char buffer[BUF_SIZE];
+char lineBuffer[BUF_SIZE];
 int lineLength;
 int lastExit = 0;
 
-typedef struct program{
-    list_t* arguments;
-    char* file;
-    char* input;
-    char* output;
-} Program;
+void (*perror_ptr)(const char*) = &perror;
+void myperror(const char* str){
+    (*perror_ptr)(str);
+    lastExit = 1;
+}
+
+#define perror(str) myperror(str)
+
+int isPath(char* token){
+    int i;
+    for (i = 0; token[i] != 0; i++){
+        if (token[i] == '/'){
+            return 1;
+        }
+    }
+    return 0;
+}
+
+char* cloneString(char* strToCopy){
+    size_t strSize = 0;
+    int i;
+    for (i = 0; strToCopy[i] != 0; i++){
+        strSize++;
+    }
+    char* strClone = malloc(strSize+1);
+    strcpy(strClone, strToCopy);
+    return strClone;
+}
+
+char isSpecialToken(char firstChar){
+    return (firstChar == '|' || firstChar == '>' || firstChar == '<');
+}
 
 char* append(char* dest, char* toAppend) {
     int dest_length = 0, append_length = 0;
@@ -29,16 +56,6 @@ char* append(char* dest, char* toAppend) {
     dest = realloc(dest, dest_length + append_length + 1);
     strcat(dest, toAppend);
     return dest;
-}
-
-int searchPath(char* path) {
-    struct stat block;
-    if(stat(path, &block) == -1) {
-        // File DNE, or unaccessible
-        return 0;
-    }
-    // File exists
-    return 1;
 }
 
 char* obtainParent(char* path, char** filename) {
@@ -75,77 +92,56 @@ char* obtainParent(char* path, char** filename) {
     return parentPath;
 }
 
-char* searchFile(char* file) {
+char* path_variables[] = {
+    "/usr/local/sbin/",
+    "/usr/local/bin/",
+    "/usr/sbin/",
+    "/usr/bin/",
+    "/sbin/",
+    "/bin",
+};
+char* searchPath(char* file) {
     struct stat block;
-    char* path = malloc(32);
-    lastExit = 0;
-    // Check /usr/local/sbin
-    strcpy(path, "/usr/local/sbin/");
-    append(path, file);
-    if(stat(path, &block) != -1) {
-        return path;
+    char* path = malloc(18);
+
+    int i;
+    for (i = 0; i < 6; i++){
+        path = strcpy(path, path_variables[i]);
+        path = append(path, file);
+        if(stat(path, &block) != -1) {
+            return path;
+        }
     }
-    // Check /usr/local/bin
-    strcpy(path, "/usr/local/bin/");
-    append(path, file);
-    if(stat(path, &block) != -1){
-        return path;
-    }
-    // Check /usr/sbin
-    strcpy(path, "/usr/sbin/");
-    append(path, file);
-    if(stat(path, &block) != -1){
-        return path;
-    }
-    // Check /usr/bin
-    strcpy(path, "/usr/bin/");
-    append(path, file);
-    if(stat(path, &block) != -1){
-        return path;
-    }
-    // Check /sbin
-    strcpy(path, "/sbin/");
-    append(path, file);
-    if(stat(path, &block) != -1){
-        return path;
-    }
-    // Check /bin
-    strcpy(path, "/bin/");
-    append(path, file);
-    if(stat(path, &block) != -1){
-        return path;
-    }
-    perror("Error: ");
-    lastExit = 1;
+    perror(file);
+    free(path);
     return NULL;
 }
 
 int cd(char* path) {
     int ret = chdir(path);
     if(ret == -1) {
-        lastExit = 1;
+        perror("chdir");
     }
-    perror("Error: ");
     return ret;
 }
 
 void pwd() {
     // Change the size of the buffer until it can encapsulate the path
     int size = 100, complete = 0;
-    char* buffer = malloc(sizeof(char)*100);
+    char* buffer = malloc(sizeof(char)*(100+2)); // Add two for \n and \0 chars
     while (!complete) {
         if(getcwd(buffer, size-1) != NULL) {
             complete = 1;
         }
         else {
             size = size * 2;
-            buffer = (char*)realloc(buffer, size);
+            buffer = (char*)realloc(buffer, sizeof(char)*(size+2));
         }
     }
     // Find the size of the path
     int pathSize = 0;
-    for(int i = 0; i < size; i++) {
-        pathSize++;
+    for(int i = (size > 100 ? size/2 : 0); i < size; i++) {
+        pathSize = i+1;
         if(buffer[i] == '\0') {
             break;
         }
@@ -174,10 +170,10 @@ int isWild(char* token, int* asterisk, int* totalChars) {
 int identifyWild(char* fileName, char* pattern, int asterisk, int totalChars) {
     int num_front = asterisk;
     int num_end =  totalChars - asterisk - 1;
-    printf("%d %d\n", num_front, num_end);
+    //printf("%d %d\n", num_front, num_end);
     int fileNameSize = 0;
     while(fileName[fileNameSize] != '\0') {fileNameSize++;}
-    printf("%d\n", fileNameSize);
+    //printf("%d\n", fileNameSize);
     if(fileNameSize < num_front+num_end) {
         return 0;
     }
@@ -202,55 +198,42 @@ int identifyWild(char* fileName, char* pattern, int asterisk, int totalChars) {
     }
 }
 
-list_t *tokenize(char *input)
+//  Responsible for converting input lines to tokens
+//  And checking syntax
+list_t *tokenize(char *input, unsigned* numProcesses)
 {
     if(strcmp(input, "\n") == 0) {
         return NULL;
     }    
     list_t* token_arr = malloc(sizeof(list_t));
     al_init(token_arr, 8);
+    char lastWasSpecial = 1;
     char scanningWhitespace = 0;
     int i = 0;
     while (input[i] != '\0')
     {
-        // printf("scanning whitespace: %d, i = %d\n", scanningWhitespace, i);
-
         if (scanningWhitespace)
         {
-            // No whitespace detected here: start scanning this token
+            //  No whitespace detected here: start scanning this token
             scanningWhitespace = 0;
-            // Count token length
+            //  Count token length
             int j = i;
-            char isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|' || input[i] == ' ';
+            char isSpecial = isSpecialToken(input[i]) || input[i] == ' ';
             if (!isSpecial)
             {
                 while (input[i] != '\0')
                 {
                     i++;
-                    isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|' || input[i] == ' ';
+                    isSpecial = isSpecialToken(input[i]) || input[i] == ' ';
                     if (isSpecial)
                     {
-                        if (input[i - 1] == '\\')
-                        {
-                            if (i > 1)
-                            {
-                                if (input[i - 2] == '\\')
-                                {
-                                    break;
-                                }
-                            }
-                            i++;
-                        }
-                        else
-                        {
-                            break;
-                        }
+                        break;
                     }
                 }
             }
             if (input[i] == '\0')
             {
-                // Avoid redundant terminator character or new line character
+                //  Avoid redundant terminator character or new line character
                 i--;
             }
             if (i == j)
@@ -264,7 +247,7 @@ list_t *tokenize(char *input)
             }
             char referencesHomeDir = 0;
             if (str_size > 1){
-                //long enough to be a reference to the home directory
+                //  Long enough to be a reference to the home directory
                 if (input[j] == '~' && input[j+1] == '/'){
                     referencesHomeDir = 1;
                 }
@@ -284,402 +267,315 @@ list_t *tokenize(char *input)
                 referencesHomeDir = homeDirLength;
             }
             
-            // Copy the characters
-            memcpy(str+referencesHomeDir, &(input[j+(referencesHomeDir != 0)]), str_size);
-            // Add terminator character
-            str[str_size+referencesHomeDir - 1 - (referencesHomeDir != 0)] = '\0';
-            // Push token into the array
+            //  Copy the characters
+            memcpy(str + referencesHomeDir, &(input[j + (referencesHomeDir != 0)]), str_size);
+            //  Add terminator character
+            str[str_size + referencesHomeDir - 1 - (referencesHomeDir != 0)] = '\0';
+            //  Push token into the array
             al_push(token_arr, str);
-
-            for (int x = 0; x < str_size; x++)
-            {
-                if (token_arr->data[token_arr->size-1][x] == '\\')
-                {
-                    char isNewline = token_arr->data[token_arr->size-1][x + 1] == '\\' && token_arr->data[token_arr->size-1][x + 1] == 'n';
-                    for (int y = x; y < str_size - 1 - isNewline; y++)
-                    {
-                        token_arr->data[token_arr->size-1][y] = token_arr->data[token_arr->size-1][y + 1 + isNewline];
-                    }
-                }
-            }
-
-           //printf("%s\n", str);
+            lastWasSpecial = 0;
         }
         else
         {
-            // Move past whitespace
+            //  Move past whitespace
             scanningWhitespace = 1;
-            char isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|';
+            char isSpecial = isSpecialToken(input[i]);
             while (input[i] == ' ' || isSpecial)
             {
                 if (isSpecial)
                 {
+                    if (lastWasSpecial){break;}
+                    if (input[i] == '|'){
+                        *numProcesses = *numProcesses+1;
+                    }
                     char* str2 = malloc(sizeof(char) * 2);
                     str2[0] = input[i];
                     str2[1] = '\0';
                     al_push(token_arr, str2);
+                    lastWasSpecial = 1;
                 }
                 i++;
-                isSpecial = input[i] == '<' || input[i] == '>' || input[i] == '|';
+                isSpecial = isSpecialToken(input[i]);
             }
         }
     }
-    /*for(int x = 0; x < token_arr->size; x++) {
-        printf("%s\n", token_arr->data[x]);
-    }*/
+    
+    if (lastWasSpecial){
+        printf("tokenize: incorrect syntax\n");
+        lastExit = 1;
+    }
+    
     return token_arr;
 }
 
-int execute(Program** programs) {
-    pid_t pid1, pid2;
-    int fd[2];
-    int subExists = 0;
-    int main_output_fd = 1;
-    if(programs[1] != NULL) {
-        subExists = 1;
-    }
-
-    // Create first pipe
-    if(pipe(fd) == -1) {
-        perror("Error: ");
-        return -1;
-    }
-
-    // Command 1
-    pid1 = fork();
-    if(pid1 < 0) {
-        perror("Error: failure in the fork for child 1");
-        return -1;
-    }
-    else if(pid1 == 0) {
-        // Child process 1: run the stuff
-        close(fd[0]);       // forbid the process from reading from the pipe
-        if(programs[0]->input != NULL) {
-            // input redirect
-            int new_input = open(programs[0]->input, O_RDONLY);
-            if(new_input == -1) {
-                perror("Redirect Error: ");
-                return -1;
-            }
-            // dup2 to redirect the input
-            dup2(fd[0], new_input);
-        }
-        if(programs[0]->output != NULL) {
-            // output redirect
-            main_output_fd = open(programs[0]->output, O_WRONLY | O_CREAT | O_TRUNC, 0640);
-            if(main_output_fd == -1) {
-                perror("Redirect Error: ");
-                return -1;
-            }
-            // dup2 to redirect the input
-            dup2(fd[1], main_output_fd);
-        }
-        if(execv(programs[0]->file, programs[0]->arguments->data) < 0) {
-            perror("Error: ");
-            return -1;
-        }
-        // fullt close child 1 pipes
-        close(fd[1]);
-        return 1;
-    }
-    else {
-        // Parent process comes here
-        // Command 2 given that it exists
-        if(subExists) {
-
-            // Create second pipe
-            if(pipe(fd) == -1) {
-                perror("Error: ");
-                return -1;
-            }
-
-            pid2 = fork();
-            if(pid2 < 0) {
-                perror("Error: failure in the fork for child 2");
-                return -1;
-            }
-            else if(pid2 == 0) {
-                // Chid process 2: run the stuff
-                close(fd[1]);       // forbid the process from writing to the pipe
-
-                // If sub command doesn't have input redirected, connect with the output of main
-                if((programs[1]->input == NULL)) {
-                    dup2(fd[0], main_output_fd);
-                }
-                if(programs[1]->output != NULL) {
-                    // output redirect
-                    int new_output = open(programs[1]->output, O_WRONLY | O_CREAT | O_TRUNC, 0640);
-                    if(new_output == -1) {
-                        perror("Redirect Error: ");
-                        return -1;
-                    }
-                    // dup2 to redirect the input
-                    dup2(fd[1], new_output);
-                }
-                if(execv(programs[1]->file, programs[1]->arguments->data) < 0) {
-                    perror("Error: ");
-                    return -1;
-                }
-                // fully close child 2 pipes
-                close(fd[0]);
-                return 1;
-            }
-            else {
-                // Parent process comes here
-                // Successful executions of both processes
-                return 1;
-            }
-        }
-        // Close parent pipes
-        close(fd[0]);
-        close(fd[1]);
-        // Successful execution of one process
-        return 1;
-    }
-
-    
-}
-
-Program** parseArguments(list_t* tokens) {
-    // ProgramList: holds up to two programs that the shell will execute later
-    Program** programList = malloc(sizeof(Program*)*2);
-    // List of arguments that a program will take
-    list_t* arguments = malloc(sizeof(list_t));
-    al_init(arguments, tokens->size);
-    // Program structure: holds a program's name, arguments, and I/O's
-    Program* program = malloc(sizeof(struct program));
-    program->input = NULL;
-    program->output = NULL;
-    printf("Checkpoint 1: Entered parseArguments\n");
-
-    // First token is not a pathway
-    if(tokens->data[0][0] != '/') {
-        // Find the path and rename the token as a pathway, or return NULL if path to file not found
-        char* name = searchFile(tokens->data[0]);
-        if(name != NULL) {
-            strcpy(tokens->data[0], name);
-        }
-        else {
-            return NULL;
-        }
-    }
-    // File name is taken
-    program->file = tokens->data[0];
-    // Obtain the path of the directory encapsulating the program
-    char* programName;
-    char* parentPath = obtainParent(tokens->data[0], &programName);
-    printf("%s\n", program->file);
-    printf("Checkpoint 2: Obtain Parent Complete: Parent Path: %s File Name: %s\n", parentPath, programName);
-    // Program takes its own name as an argument
-    al_push(arguments, programName);
-    printf("Checkpoint 3: Pushed command name in as an argument\n");
-    // Open the directory 
-    DIR* directory = opendir(parentPath);
-    if(directory == NULL) {
-        perror("Error");
-        return NULL;
-    }
-    struct dirent *dir;
-    // Main loop
-    for(int i = 1; i < tokens->size; i++) {
-        printf("Checkpoint 4: Entered main loop\n");
-
-        // Case: Wildcards
-        int asterisk = -1, totalChars = -1;
-        if(isWild(tokens->data[i], &asterisk, &totalChars) == 1) {
-            // Read through directory to find files that fit the wildcard pattern
-            write(1,"Special Checkpoing: Entered Wildcard Search\n",45);
-            int foundWildCard = 0;
-            while((dir = readdir(directory)) != NULL) {
-                if(identifyWild(dir->d_name, tokens->data[i], asterisk, totalChars)) {
-                    al_push(arguments, dir->d_name);
-                    foundWildCard = 1;
-                    // found a file that will be passed as an argument
-                    // pass the file name in as an argument
-                }
-            }
-            // If no file matching the wildcard is found, then pass it as an argument to the program
-            if(!foundWildCard) {
-                al_push(arguments, tokens->data[i]);
-            }
-        }
-
-        // Case: Redirection < (input)
-        else if(tokens->data[i][0] == '<') {
-            // Bad case: there is no argument after this token
-            if(i == tokens->size-1) {
-                printf("Error: no file to set input as.");
-                return NULL;
-            }
-            // Bad case: the argument after this token is invalid
-            if(strcmp(tokens->data[i+1], "<") == 0 || strcmp(tokens->data[i+1], ">") == 0 || strcmp(tokens->data[i+1], "|") == 0) {
-                printf("Error: argument after is invalid");
-                return NULL;
-            }
-            program->input = tokens->data[i+1];
-            i++;
-        }
-        // Case: Redirection > (output)
-        else if(tokens->data[i][0] == '>') {
-            // Bad case: there is no argument after this token
-            if(i == tokens->size-1) {
-                printf("Error: no file to set input as.");
-                return NULL;
-            }
-            // Bad case: the argument after this token is invalid
-            if(strcmp(tokens->data[i+1], "<") == 0 || strcmp(tokens->data[i+1], ">") == 0 || strcmp(tokens->data[i+1], "|") == 0) {
-                printf("Error: argument after is invalid");
-                return NULL;
-            }
-            program->output = tokens->data[i+1];
-            i++;
-        }
-        // Case: Sub Command Piping (|)
-        else if(tokens->data[i][0] == '|') {
-            // Bad commands:
-            if(i == tokens->size-1 || strcmp(tokens->data[i+1], "<") == 0 || strcmp(tokens->data[i+1], ">") == 0 || strcmp(tokens->data[i+1], "|") == 0) {
-                printf("Error: argument after | is invalid");
-                return NULL;
-            }
-            // Everything to the right of the bar is a subcommand -> recursion
-            // Split the tokens at the point where the | occurs
-            printf("Special Checkpoint: Splitting Tokens\n");
-            list_t* splitTokens = malloc(sizeof(list_t));
-            unsigned int numTokens = tokens->size - i -1;
-            al_init(splitTokens, numTokens);
-            printf("TOKENS FOR RECURSION:\n");
-            for(int z = i+1; z < tokens->size; z++) {
-                al_push(splitTokens,tokens->data[z]);
-                printf("%s\n", splitTokens->data[z-i-1]);
-            }
-            printf("TOKENS SUCCESSFULLY SPLIT\n");
-            // Recursive call, get the returning list of commands (should only be one thing)
-            printf("ENTERING SUBCOMMAND RECURSION\n");
-            Program** subcommand_list = parseArguments(splitTokens);
-            if(subcommand_list == NULL) {
-                // There is some issue with the subcommand, terminate
-                printf("Error: Subcommand cannot be read.");
-                return NULL;
-            }
-            else {
-                // Subcommand's Program will be stored in the first element, read it in as the second element of the parent list
-                printf("Special Checkpoint: POPULATING PARENT PROGRAM LIST\n");
-                programList[1] = subcommand_list[0];
-                free(subcommand_list);
-                printf("EXITING LOOP, SUBCOMMAND PROCESSED\n");
-                // Subcommand marks the end of the line, recursion will read the remainder
-                break;
-            }
-        }
-        // Case: Default, token is read as a argument
-        else {
-            printf("Special Checkpoint: Adding argument to list\n");
-            // Pass token as a argument
-            al_push(arguments, tokens->data[i]);
-        }
-    }
-    program->arguments = arguments;
-    // al_destroy(arguments);
-    // free(arguments);
-    // free(parentPath);
-    // free(programName);
-    printf("END CHECKPOINT\n");
-    programList[0] = program;
-    return programList;
-}
-
-void interpreter(list_t* tokens) {
-    // terminal ignores empty lines
+int interpreter(list_t* tokens, unsigned numChildren) {
+    //  Terminal ignores empty lines
     if(tokens == NULL) {
-        return;
+        return 0;
     }
-    // Path mode
-    if(tokens->data[0][0] == '/') {
-        // Path mode shit here ...
-        Program** programs = parseArguments(tokens);
-        if(programs == NULL) {
-            printf("Error: line is not executable\n");
-            return;
-        }
-        printf("----------PROGRAM 1---------\n");
-        printf("Executed Program Path: %s\n", programs[0]->file);
-        if(programs[0]->input != NULL) {
-            printf("Input: %s\n", programs[0]->input);
-        }
-        else {
-            printf("Input: STD_IN\n");
-        }
-        if(programs[0]->output != NULL) {
-            printf("Output: %s\n", programs[0]->output);
-        }
-        else {
-            printf("Output: STD_OUT\n");
-        }
-        printf("Arguments: \n");
-        for(int i = 0; i < programs[0]->arguments->size; i++) {
-            printf("%s\n", programs[0]->arguments->data[i]);
-        }
-        printf("----------Program 2----------\n");
-        if(programs[1] != NULL) {
-            printf("Executed Subcommand at Path: %s\n", programs[1]->file);
-            if(programs[1]->input != NULL) {
-                printf("Input: %s\n", programs[1]->input);
+    unsigned numTokens = tokens->size;
+    int pipes[numChildren][2];
+    int errpipes[numChildren][2];
+
+    int i;
+    int processNum = 0;
+    for (i = 0; i < numTokens; i++)
+    {
+        //  Create pipe
+
+        if (pipe(pipes[processNum]) == -1)   { perror("pipe"); return -1; }
+        if (pipe(errpipes[processNum]) == -1){ perror("pipe"); return -1; }
+
+        pid_t processID = fork();
+        if (processID == 0)
+        {
+            //  Child process: ith program
+
+            //  For detecting errors
+            char failed = 0;
+
+            //  Initialize arguments list
+            list_t* args = malloc(sizeof(list_t));
+            al_init(args, 8);
+            al_push(args, cloneString(tokens->data[i]));
+
+            //  Handle first token
+            int startIndex = i;
+            char* executableName = NULL;
+            char* parentPath = NULL;
+
+            //  Is not a built in command
+            if (!strcmp(tokens->data[i], "cd") == 0 && !strcmp(tokens->data[i], "pwd") == 0)
+            {
+                //  Is a path to an executable (contains a '/')
+                if (isPath(tokens->data[i]))
+                {
+                    parentPath = obtainParent(tokens->data[i], &executableName);
+                    free(executableName); 
+                    struct stat block;
+                    if (stat(tokens->data[i], &block) == -1)
+                    {
+                        perror(tokens->data[i]);
+                    }
+                }
+                //  Is not a path to executable, search path variables
+                else
+                {
+                    executableName = tokens->data[i];
+                    parentPath = searchPath(executableName);
+                    //  Exists in one of six paths
+                    if (parentPath != NULL)
+                    {
+                        al_push(args, cloneString(executableName));
+                        tokens->data[i] = append(parentPath, executableName);
+                        free(executableName);
+                    }
+                    //  Does not exist in the paths
+                    else
+                    {
+                        free(parentPath);
+                        al_destroy(args);
+                        free(args);
+                        char failed = 1;
+                        write(errpipes[processNum][1], &failed, 1);
+                        return 1;
+                    }
+                }
             }
-            else {
-                printf("Input: STD_IN\n");
+
+            //  Collect program arguments, redirections
+            char redirected = 0;
+            int inputRedirection = STDIN_FILENO;
+            int outputRedirection = STDOUT_FILENO;
+            i++;
+            while (i < numTokens && tokens->data[i][0] != '|')
+            {
+                char* token = tokens->data[i];
+                //  Input redirect
+                if (token[0] == '<')
+                {
+                    if (i < numTokens-1)
+                    {
+                        //  Close any previous redirections (we can allow multiple redirections)
+                        (inputRedirection != STDIN_FILENO) ? (close(inputRedirection) == -1 ? perror("close") : 0) : 0;
+                        //  Open provided input
+                        if ((inputRedirection = open(tokens->data[i+1], O_RDONLY)) == -1){ 
+                            perror(tokens->data[i+1]); 
+                            failed = 1; 
+                            break; 
+                        }
+                        //  Already read the next token, increment twice
+                        i++;
+                        redirected = 1;
+                    }
+                }
+                //  Output redirect
+                else if (token[0] == '>')
+                {
+                    if (i < numTokens-1)
+                    {
+                        //  Close any previous redirections
+                        (outputRedirection != STDOUT_FILENO) ? (close(outputRedirection) == -1 ? perror("close") : 0) : 0;
+                        //  Open provided output
+                        if ((outputRedirection = open(tokens->data[i+1], O_WRONLY | O_CREAT | O_TRUNC, 0640)) == -1){ 
+                            perror(tokens->data[i+1]); 
+                            failed = 1; 
+                            break; 
+                        }
+                        //  Already read the next token, increment twice
+                        i++;
+                        redirected = 1;
+                    }
+                }
+                //  Add arguments
+                else if (!redirected)
+                {
+                    int asterisk = -1, totalChars = -1, foundWildCard = 0;
+                    if (isWild(tokens->data[i], &asterisk, &totalChars) == 1)
+                    {
+                        DIR* directory = opendir(parentPath);
+                        if(directory == NULL) {
+                            perror("opendir");
+                            failed = 1;
+                            break;
+                        }
+                        struct dirent *dir;
+                        //  Read through directory to find files that fit the wildcard pattern
+                        while ((dir = readdir(directory)) != NULL) {
+                            if (identifyWild(dir->d_name, tokens->data[i], asterisk, totalChars)){
+                                al_push(args, cloneString(dir->d_name));
+                                foundWildCard = 1;
+                                //  found a file that will be passed as an argument
+                                //  pass the file name in as an argument
+                            }
+                        }
+                        // If no file matching the wildcard is found, then pass it as an argument to the program
+                    }
+                    
+                    if (!foundWildCard)
+                    {
+                        al_push(args, cloneString(token));
+                    }
+                }
+                //  Else, ignore extra arguments just like linux shell normally would
+                i++;
             }
-            if(programs[1]->output != NULL) {
-                printf("Output: %s\n", programs[1]->output);
+
+            write(errpipes[processNum][1], &failed, 1);
+            if (!failed)
+            {
+                //  Pipe to another program is next
+                if (i < numTokens && tokens->data[i][0] == '|')
+                {
+                    //  Prepare output to write to pipe (> takes priority)
+                    if (outputRedirection == STDOUT_FILENO)
+                    {
+                        outputRedirection = pipes[processNum][1];
+                    }
+                }
+                //  Prepare input to read from previous pipe (< takes priority)
+                if (processNum > 0 && inputRedirection == STDIN_FILENO)
+                {
+                    inputRedirection = pipes[processNum-1][0];
+                }
+
+                //  Redirect input, output
+                (inputRedirection  != STDIN_FILENO)  ? dup2(inputRedirection, STDIN_FILENO)   : 0;
+                (outputRedirection != STDOUT_FILENO) ? dup2(outputRedirection, STDOUT_FILENO) : 0;
+                
+                close(pipes[processNum][0]);
+                close(pipes[processNum][1]);
+                if (processNum > 0){
+                    close(pipes[processNum-1][0]);
+                    close(pipes[processNum-1][1]);
+                }
+            
+                //  Handle built in commands
+                if(strcmp(tokens->data[startIndex], "cd") == 0 && numChildren > 1) //   If this is the only child process.. do nothing 
+                {
+                    //  If this ends up being run in a child process, it will effectively do nothing. But it should run anyway
+                    //  to throw errors
+                    if (tokens->size > 1 && startIndex < tokens->size-1 && !isSpecialToken(tokens->data[startIndex+1][0])){
+                        cd(tokens->data[startIndex+1]);
+                    }
+                    else{
+                        char* homeDir = getenv("HOME");
+                        cd(homeDir);
+                    }
+                }
+                else if(strcmp(tokens->data[startIndex], "pwd") == 0)
+                {
+                    pwd();
+                }
+                //  Not built in, call execv
+                else
+                {
+                    //  NULL terminator so program can count the number of arguments
+                    al_push(args, NULL);
+                    execv(tokens->data[startIndex], args->data);
+                    //  Free extra pointers
+                    if (parentPath != NULL){
+                        free(parentPath);
+                    }
+                }
             }
-            else {
-                printf("Output: STD_OUT\n");
-            }
-            printf("Arguments:\n");
-            for(int i = 1; i < programs[1]->arguments->size; i++) {
-                printf("%s\n", programs[1]->arguments->data[i]);
-            }
+
+            //  Free arguments list
+            al_destroy(args);
+            free(args);
+            
+            //  Write success
+
+            //  Return 1 to signal that this is a child process 
+            return 1;
         }
-        return;
-    }
-    // Built in Commands Mode
-    if(strcmp(tokens->data[0],"cd") == 0) {
-        if (tokens->size == 1){
-            char* homeDir = getenv("HOME");
-            cd(homeDir);
+        else
+        {
+            //  Parent process --> skip to anything after the pipe, if it exists
+            while (i < numTokens && tokens->data[i][0] != '|'){
+                i++;
+            }
+
+            //  Don't want to put cd into a child process(unless there's a pipe): we want
+            //  to switch the directory of the parent process
+            if (numChildren == 1 && strcmp(tokens->data[0], "cd") == 0){
+                if (tokens->size > 1){
+                    cd(tokens->data[1]);
+                }
+                else{
+                    char* homeDir = getenv("HOME");
+                    cd(homeDir);
+                }
+                int wstatus;
+                wait(&wstatus);
+                return 0;
+            }
+
+            //  Count the next process
+            processNum++;
         }
-        else{
-            cd(tokens->data[1]);
-        }
-    }
-    if(strcmp(tokens->data[0],"pwd") == 0 && tokens->size == 1) {
-        pwd();
-        return;
-    }
-    if(strcmp(tokens->data[0],"search") == 0 && tokens->size == 2) {
-        searchFile(tokens->data[1]);
-        return;
-    }
-    // Neither Path nor Built-in Command
-    searchFile(tokens->data[0]);
-    if(lastExit == 0) {     // Means that a file with the given name has been found
-        // Execute the file with the given name
     }
 
-    // Free the tokenized line
-    al_destroy(tokens);
-    free(tokens);
+    for (int i = 0; i < numChildren; i++){
+        char errorDetected;
+        int bytes = read(errpipes[i][0], &errorDetected, 1);
+        if (bytes == -1){
+            perror("read");
+        }
+        if (errorDetected){ lastExit = 1; }
+    }
+
+    int wstatus;
+    for (int i = 0; i < numChildren; i++)
+    {
+        wait(&wstatus);
+    }
+
+    return 0;
 }
 
 int main(int argc, char* argv[]) {
     int file, bytes;
-    char* buffer = malloc(sizeof(char)*BUF_SIZE);
-    lineBuffer = malloc(sizeof(char)*BUF_SIZE);
-
-    char* str1 = malloc(sizeof(char)* 10);
-    strcpy(str1, "dogman");
-    char* str2 = malloc(sizeof(char)*10);
-    strcpy(str2, "is cool");
-
     // Check whether we're in batch mode, interactive mode, or too many arguments were passed
     if(argc == 1) {
         //interactive mode
@@ -688,20 +584,31 @@ int main(int argc, char* argv[]) {
         file = 0;
         write(1, "mysh> ", 7);
         while((bytes = read(file, buffer, BUF_SIZE)) > 0) {
+            lastExit = 0;
+
             memcpy(lineBuffer, buffer, bytes);
             lineBuffer[bytes] = '\0';
-            // Exit Condition
+            //  Exit Condition
             if(strcmp(lineBuffer, "exit\n") == 0) {
                 write(1, "mysh> exiting...\n", 17);
                 close(file);
-                free(buffer);
-                free(lineBuffer);
                 return 0;
             }
-            // Interpret Line
-            list_t* tokens = tokenize(lineBuffer);
-            interpreter(tokens);
-            // The terminal prompt: Preceded by ! if the last exit code was non zero / failed execution
+            //  Interpret Line
+            unsigned numProcesses = 1;
+            list_t* tokens = tokenize(lineBuffer, &numProcesses);
+            //  Tokens have no syntax errors, so we can proceed
+            if (lastExit == 0){
+                int isChildProcess = interpreter(tokens, numProcesses);
+                al_destroy(tokens);
+                free(tokens);
+                
+                if (isChildProcess){
+                    return 0;
+                }
+            }
+            
+            //  The terminal prompt: Preceded by ! if the last exit code was non zero / failed execution
             if(lastExit != 0) {
                 write(1, "!mysh> ", 8);
             }
@@ -725,13 +632,23 @@ int main(int argc, char* argv[]) {
                     if(strcmp(lineBuffer, "exit\n") == 0) {
                         write(1, "mysh> exiting...\n", 17);
                         close(file);
-                        free(buffer);
-                        free(lineBuffer);
                         return 0;
                     }
                     // Do something with lineBuffer here
-                    list_t* tokens = tokenize(lineBuffer);
-                    interpreter(tokens);
+                    unsigned numProcesses = 1;
+                    list_t* tokens = tokenize(lineBuffer, &numProcesses);
+                    int isChildProcess = 0;
+                    if (lastExit == 0){
+                        isChildProcess = interpreter(tokens, numProcesses);
+                    }
+                    lastExit = 0;
+                    al_destroy(tokens);
+                    free(tokens);
+
+                    if (isChildProcess){
+                        return 0;
+                    }
+                    
                     // Set the starting position of the next line in the buffer
                     lineStart = i+1;
                 }
@@ -740,6 +657,6 @@ int main(int argc, char* argv[]) {
         // If the last character in the file wasn't a '/n', then we have a partial command: just ignore it.
     }
     else {
-        printf("Error: Too many arguments.");
+        printf("mysh: Too many arguments\n");
     }
 }
