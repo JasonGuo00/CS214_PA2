@@ -99,21 +99,25 @@ char* path_variables[] = {
     "/usr/bin/",
     "/sbin/",
     "/bin",
+    NULL
 };
 char* searchPath(char* file) {
     struct stat block;
-    char* path = malloc(18);
 
     int i;
-    for (i = 0; i < 6; i++){
+    for (i = 0; path_variables[i] != NULL; i++){
+        char* path = malloc(18);
         path = strcpy(path, path_variables[i]);
-        path = append(path, file);
-        if(stat(path, &block) != -1) {
-            return path;
+        char* parentPath = cloneString(path);
+        char* fullPathtoFile = append(path, file);
+        if(stat(fullPathtoFile, &block) != -1) {
+            free(fullPathtoFile);
+            return parentPath;
         }
+        free(fullPathtoFile);
+        free(parentPath);
     }
     perror(file);
-    free(path);
     return NULL;
 }
 
@@ -308,6 +312,22 @@ list_t *tokenize(char *input, unsigned* numProcesses)
     return token_arr;
 }
 
+int verifyExecutability(char* filePath){
+    struct stat block;
+    if (stat(filePath, &block) == -1)
+    {
+        perror(filePath);
+        return 1;
+    }
+    else if (!(block.st_mode & S_IXUSR) || ((block.st_mode & __S_IFMT) != __S_IFREG))
+    {
+        printf("%s: Failed to execute\n", filePath);
+        lastExit = 1;
+        return 1;
+    }
+    return 0;
+}
+
 int interpreter(list_t* tokens, unsigned numChildren) {
     //  Terminal ignores empty lines
     if(tokens == NULL) {
@@ -331,9 +351,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
         {
             //  Child process: ith program
 
-            //  For detecting errors
-            char failed = 0;
-
             //  Initialize arguments list
             list_t* args = malloc(sizeof(list_t));
             al_init(args, 8);
@@ -352,11 +369,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                 {
                     parentPath = obtainParent(tokens->data[i], &executableName);
                     free(executableName); 
-                    struct stat block;
-                    if (stat(tokens->data[i], &block) == -1)
-                    {
-                        perror(tokens->data[i]);
-                    }
                 }
                 //  Is not a path to executable, search path variables
                 else
@@ -376,11 +388,13 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                         free(parentPath);
                         al_destroy(args);
                         free(args);
-                        char failed = 1;
-                        write(errpipes[processNum][1], &failed, 1);
+                        write(errpipes[processNum][1], &lastExit, 1);
                         return 1;
                     }
                 }
+
+                //  Prints error and sets lastExit if file is not executable
+                verifyExecutability(tokens->data[i]);
             }
 
             //  Collect program arguments, redirections
@@ -388,7 +402,7 @@ int interpreter(list_t* tokens, unsigned numChildren) {
             int inputRedirection = STDIN_FILENO;
             int outputRedirection = STDOUT_FILENO;
             i++;
-            while (i < numTokens && tokens->data[i][0] != '|')
+            while (!lastExit && i < numTokens && tokens->data[i][0] != '|')
             {
                 char* token = tokens->data[i];
                 //  Input redirect
@@ -401,7 +415,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                         //  Open provided input
                         if ((inputRedirection = open(tokens->data[i+1], O_RDONLY)) == -1){ 
                             perror(tokens->data[i+1]); 
-                            failed = 1; 
                             break; 
                         }
                         //  Already read the next token, increment twice
@@ -419,7 +432,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                         //  Open provided output
                         if ((outputRedirection = open(tokens->data[i+1], O_WRONLY | O_CREAT | O_TRUNC, 0640)) == -1){ 
                             perror(tokens->data[i+1]); 
-                            failed = 1; 
                             break; 
                         }
                         //  Already read the next token, increment twice
@@ -436,7 +448,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                         DIR* directory = opendir(parentPath);
                         if(directory == NULL) {
                             perror("opendir");
-                            failed = 1;
                             break;
                         }
                         struct dirent *dir;
@@ -461,8 +472,8 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                 i++;
             }
 
-            write(errpipes[processNum][1], &failed, 1);
-            if (!failed)
+            write(errpipes[processNum][1], &lastExit, 1);
+            if (!lastExit)
             {
                 //  Pipe to another program is next
                 if (i < numTokens && tokens->data[i][0] == '|')
@@ -483,6 +494,7 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                 (inputRedirection  != STDIN_FILENO)  ? dup2(inputRedirection, STDIN_FILENO)   : 0;
                 (outputRedirection != STDOUT_FILENO) ? dup2(outputRedirection, STDOUT_FILENO) : 0;
                 
+                //  Close extra file descriptors
                 close(pipes[processNum][0]);
                 close(pipes[processNum][1]);
                 if (processNum > 0){
@@ -513,16 +525,17 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                     //  NULL terminator so program can count the number of arguments
                     al_push(args, NULL);
                     execv(tokens->data[startIndex], args->data);
-                    //  Free extra pointers
-                    if (parentPath != NULL){
-                        free(parentPath);
-                    }
                 }
             }
 
             //  Free arguments list
             al_destroy(args);
             free(args);
+
+            //  Free extra pointers
+            if (parentPath != NULL){
+                free(parentPath);
+            }
             
             //  Write success
 
@@ -569,6 +582,9 @@ int interpreter(list_t* tokens, unsigned numChildren) {
     for (int i = 0; i < numChildren; i++)
     {
         wait(&wstatus);
+        if (wstatus != 0){
+            lastExit = 1;
+        }
     }
 
     return 0;
@@ -607,7 +623,6 @@ int main(int argc, char* argv[]) {
                     return 0;
                 }
             }
-            
             //  The terminal prompt: Preceded by ! if the last exit code was non zero / failed execution
             if(lastExit != 0) {
                 write(1, "!mysh> ", 8);
