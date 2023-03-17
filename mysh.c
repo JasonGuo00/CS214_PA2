@@ -117,6 +117,7 @@ char* searchPath(char* file) {
         free(fullPathtoFile);
         free(parentPath);
     }
+
     perror(file);
     return NULL;
 }
@@ -354,7 +355,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
             //  Initialize arguments list
             list_t* args = malloc(sizeof(list_t));
             al_init(args, 8);
-            al_push(args, cloneString(tokens->data[i]));
 
             //  Handle first token
             int startIndex = i;
@@ -378,7 +378,6 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                     //  Exists in one of six paths
                     if (parentPath != NULL)
                     {
-                        al_push(args, cloneString(executableName));
                         tokens->data[i] = append(parentPath, executableName);
                         free(executableName);
                     }
@@ -396,6 +395,8 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                 //  Prints error and sets lastExit if file is not executable
                 verifyExecutability(tokens->data[i]);
             }
+
+            al_push(args, cloneString(tokens->data[i]));
 
             //  Collect program arguments, redirections
             char redirected = 0;

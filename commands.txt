@@ -1,9 +1,11 @@
 ./rw < a.txt | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw  | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw > b.txt
 ./rw < a.txt | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw  | ./rw | ./rw | ./rw < c.txt | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw | ./rw > switchedhalfway.txt
-pwd | ./rw > cwd.txt
+       pwd      |    ./rw>cwd.txt
 cd ~/ | pwd
 pwd > > c.txt
 ./printargs *.txt foo bar > printedargs.txt IgnoredTokenHere
-./rw < a.txt < b.txt > c.txt
-./rw < a.txt > b.txt > doubleredirect.txt
-thisfiledoesnotexist | ./printargs hello there | thisfiledoesnotexist
+./rw < a.txt < b.txt
+./rw < a.txt  > b.txt > doubleredirect.txt
+thisfiledoesnotexist | ./printargs this shouldn't print | thisfiledoesnotexist
+python                          myscript.py
+python < myscript.py
