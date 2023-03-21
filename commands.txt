@@ -5,7 +5,7 @@ cd ~/ | pwd
 pwd > > c.txt
 ./printargs *.txt foo bar > printedargs.txt IgnoredTokenHere
 ./rw < a.txt < b.txt
-./rw < a.txt  > b.txt > doubleredirect.txt
+./rw < a.txt   >  b.txt>doubleredirect.txt
 thisfiledoesnotexist | ./printargs this shouldn't print | thisfiledoesnotexist
-python                          myscript.py
+python                         myscript.py
 python < myscript.py

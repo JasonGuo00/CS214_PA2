@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include<sys/wait.h>
+#include <sys/wait.h>
 #include <dirent.h>
 #include "arraylist.h"
 
@@ -116,6 +116,7 @@ char* searchPath(char* file) {
         }
         free(fullPathtoFile);
         free(parentPath);
+        parentPath = NULL;
     }
 
     perror(file);
@@ -322,7 +323,7 @@ int verifyExecutability(char* filePath){
     }
     else if (!(block.st_mode & S_IXUSR) || ((block.st_mode & __S_IFMT) != __S_IFREG))
     {
-        printf("%s: Failed to execute\n", filePath);
+        printf("%s: Not an executable or do not have permission\n", filePath);
         lastExit = 1;
         return 1;
     }
@@ -385,6 +386,7 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                     else
                     {
                         free(parentPath);
+                        parentPath = NULL;
                         al_destroy(args);
                         free(args);
                         write(errpipes[processNum][1], &lastExit, 1);
@@ -440,7 +442,7 @@ int interpreter(list_t* tokens, unsigned numChildren) {
                         redirected = 1;
                     }
                 }
-                //  Add arguments
+                //  Add arguments only before a redirection occurs
                 else if (!redirected)
                 {
                     int asterisk = -1, totalChars = -1, foundWildCard = 0;
@@ -536,6 +538,7 @@ int interpreter(list_t* tokens, unsigned numChildren) {
             //  Free extra pointers
             if (parentPath != NULL){
                 free(parentPath);
+                parentPath = NULL;
             }
             
             //  Write success
